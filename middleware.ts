@@ -9,6 +9,8 @@ const publicPaths = new Set([
 /** Called by src/proxy.ts, the Next.js 16 entry point beside src/app. */
 export function middleware(request: NextRequest): NextResponse {
   const pathname = request.nextUrl.pathname.replace(/\/$/, '') || '/';
+  // /api/v1/* authenticates with its own Bearer key (src/lib/api/auth.ts), not the beta cookie.
+  if (pathname === '/api/v1' || pathname.startsWith('/api/v1/')) return NextResponse.next();
   if (publicPaths.has(pathname) || /^\/_next\/(?:static|image)(?:\/|$)/.test(pathname)) {
     return NextResponse.next();
   }

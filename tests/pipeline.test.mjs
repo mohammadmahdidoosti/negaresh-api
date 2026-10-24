@@ -848,9 +848,9 @@ test("default OpenRouter role mix resolves writer critic refiner and fallback", 
         fallbackModel: config.fallbackModel,
       },
       {
-        writerModel: "qwen/qwen3.8-flash",
+        writerModel: "google/gemini-3.8-flash",
         criticModel: "openai/gpt-5.6-luna",
-        refinerModel: "qwen/qwen3.8-flash",
+        refinerModel: "deepseek/deepseek-v4-flash-0731",
         fallbackModel: "deepseek/deepseek-v4-flash-0731",
       },
     );

@@ -25,9 +25,9 @@ const MAX_ATTEMPTS = 2;
 const RETRY_DELAY_MS = 1_500;
 const MAX_RETRY_AFTER_MS = 30_000;
 
-const DEFAULT_WRITER_MODEL = "qwen/qwen3.8-flash";
+const DEFAULT_WRITER_MODEL = "google/gemini-3.8-flash";
 const DEFAULT_CRITIC_MODEL = "openai/gpt-5.6-luna";
-const DEFAULT_REFINER_MODEL = "qwen/qwen3.8-flash";
+const DEFAULT_REFINER_MODEL = "deepseek/deepseek-v4-flash-0731";
 const DEFAULT_FALLBACK_MODEL = "deepseek/deepseek-v4-flash-0731";
 
 export interface LlmConfig {
