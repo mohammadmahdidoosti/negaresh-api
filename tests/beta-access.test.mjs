@@ -20,14 +20,20 @@ test('beta gate: protected pages and API, exact exemptions, validation and cooki
   try {
     process.env.NODE_ENV = 'production';
     process.env.BETA_ACCESS_SECRET = 'private-test-secret';
-    for (const path of ['/', '/how-it-works', '/api/humanize', '/api/auth-gate-extra', '/gate-extra', '/api/humanize/opengraph-image']) {
+    for (const path of ['/', '/how-it-works', '/panel', '/api/humanize', '/api/panel/connection', '/api/panel/check', '/api/auth-gate-extra', '/gate-extra', '/api/humanize/opengraph-image', '/api/v1x']) {
       for (const value of [undefined, 'wrong', 'negaresh-test-2026']) {
         const response = middleware(request(path, value, path.startsWith('/api') ? 'POST' : 'GET'));
         assert.equal(response.status, 303, path);
-        assert.equal(response.headers.get('location'), 'https://negaresh.test/gate');
+        // Pages remember where the user was going; API calls and the home page go to the bare gate.
+        const expected = path.startsWith('/api') || path === '/' ? 'https://negaresh.test/gate' : `https://negaresh.test/gate?next=${encodeURIComponent(path)}`;
+        assert.equal(response.headers.get('location'), expected);
         assert.match(response.headers.get('cache-control'), /no-store/);
       }
       assert.equal(middleware(request(path, 'private-test-secret')).headers.get('x-middleware-next'), '1');
+    }
+    // The public API authenticates with its own Bearer key, so the cookie gate lets it through.
+    for (const path of ['/api/v1', '/api/v1/humanize', '/api/v1/jobs/abc', '/api/v1/health']) {
+      assert.equal(middleware(request(path, undefined, 'POST')).headers.get('x-middleware-next'), '1', path);
     }
     for (const path of ['/gate', '/gate/', '/api/auth-gate', '/favicon.ico', '/og.png', '/opengraph-image', '/how-it-works/opengraph-image', '/_next/static/chunk.js', '/_next/image?url=x']) {
       assert.equal(middleware(request(path)).headers.get('x-middleware-next'), '1', path);

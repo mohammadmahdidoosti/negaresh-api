@@ -104,3 +104,36 @@ test("job endpoint queues work and exposes the result", async (t) => {
   assert.equal(state.status, "succeeded");
   assert.equal(state.result.text, text);
 });
+
+test("panel check reports key, missing models and price caps", async (t) => {
+  const { GET: check } = await jiti.import("../src/app/api/panel/check/route.ts");
+  const saved = { base: process.env.LLM_BASE_URL, writer: process.env.LLM_WRITER_MODEL };
+  process.env.LLM_BASE_URL = "https://openrouter.ai/api/v1";
+  process.env.LLM_WRITER_MODEL = "vendor/cheap";
+  const original = globalThis.fetch;
+  globalThis.fetch = async (url, init) => {
+    if (String(url).endsWith("/key")) {
+      assert.equal(init.headers.Authorization, "Bearer provider-key");
+      return Response.json({ data: { usage: 1.5, limit: 10, limit_remaining: 8.5 } });
+    }
+    return Response.json({ data: [
+      { id: "vendor/cheap", pricing: { prompt: "0.0000002", completion: "0.000001" } },
+      { id: "openai/gpt-5.6-luna", pricing: { prompt: "0.000003", completion: "0.000015" } },
+    ] });
+  };
+  t.after(() => {
+    globalThis.fetch = original;
+    process.env.LLM_BASE_URL = saved.base;
+    if (saved.writer === undefined) delete process.env.LLM_WRITER_MODEL; else process.env.LLM_WRITER_MODEL = saved.writer;
+  });
+  const data = await (await check()).json();
+  assert.equal(data.key.valid, true);
+  assert.equal(data.key.limitRemaining, 8.5);
+  const byRole = Object.fromEntries(data.models.map((m) => [m.role, m]));
+  assert.equal(byRole.writer.found, true);
+  assert.equal(byRole.writer.withinCap, true);
+  assert.equal(byRole.writer.inputPerM, 0.2);
+  assert.equal(byRole.critic.withinCap, false); // $15/M output exceeds the default $5 cap
+  assert.equal(byRole.refiner.found, false);
+  assert.equal(data.ready, false);
+});

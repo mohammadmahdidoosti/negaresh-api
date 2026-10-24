@@ -32,7 +32,8 @@ export default function GateForm() {
 				result.success === true
 			) {
 				// Full navigation discards any unauthenticated router cache.
-				window.location.replace('/');
+				const next = new URLSearchParams(window.location.search).get('next') ?? '/';
+				window.location.replace(/^\/(?![\/\\])/.test(next) ? next : '/');
 				return;
 			}
 			setError(

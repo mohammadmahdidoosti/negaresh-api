@@ -9,7 +9,7 @@ export default function Home() {
 			<header className='site-chrome'>
 				<div className='nav-wrap'>
 					<div className='nav-inner'>
-						<nav aria-label='ناوبری اصلی' className='top-nav'>
+						<nav aria-label='ناوبری اصلی' className='top-nav relative'>
 							<a
 								href='#'
 								className='flex min-w-0 items-center gap-3'
@@ -17,6 +17,9 @@ export default function Home() {
 							>
 								<Image src={logo} alt='' className='h-10 w-auto' priority />
 							</a>
+							<Link href='/panel' className='outline-button absolute end-4 sm:end-6 lg:end-8'>
+								پنل API
+							</Link>
 						</nav>
 					</div>
 				</div>

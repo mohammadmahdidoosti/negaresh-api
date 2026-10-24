@@ -17,7 +17,9 @@ export function middleware(request: NextRequest): NextResponse {
   if (matchesBetaSecret(request.cookies.get(BETA_COOKIE)?.value)) return NextResponse.next();
 
   // 303 prevents replaying a protected API POST body to the login page.
-  const response = NextResponse.redirect(new URL('/gate', request.url), 303);
+  const gate = new URL('/gate', request.url);
+  if (request.method === 'GET' && !pathname.startsWith('/api/') && pathname !== '/') gate.searchParams.set('next', pathname);
+  const response = NextResponse.redirect(gate, 303);
   response.headers.set('Cache-Control', 'private, no-store');
   return response;
 }
