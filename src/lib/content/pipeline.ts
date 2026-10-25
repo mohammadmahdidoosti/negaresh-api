@@ -13,7 +13,7 @@ import { usageByStage, usageSummary } from '@/lib/usage-ledger';
 import { briefMessages, draftMessages, formatDraft, normalizeHeadings, parseBrief, parseDraft, PROMPT_VERSION, repairMessages, zwnjMessages, type Brief, type DraftSections } from './prompts';
 import { runQa, type QaCheck, type QaLevel } from './qa';
 import { fetchProductData } from './site';
-import { saveResult } from './store';
+import { getResult, saveResult } from './store';
 import {
   allKnownBrands,
   breadcrumb,
@@ -45,6 +45,8 @@ export interface ContentRequest {
    * 88–100% of sentences came back unchanged).
    */
   humanizerGuards?: 'light' | 'strict';
+  /** Reuse the brief and pre-humanize draft of a stored result (controlled humanizer comparisons). */
+  reuseDraftFrom?: string;
 }
 
 export interface ContentResult {
@@ -250,7 +252,12 @@ async function runCategoryContentInner(
       ...(products.error ? { note: products.error } : {}),
     },
   };
-  let brief: Brief | undefined;
+  const reused = req.reuseDraftFrom ? await getResult(req.reuseDraftFrom) : undefined;
+  if (req.reuseDraftFrom && (!reused || reused.category.id !== cat.id)) {
+    throw new PipelineError('نتیجهٔ ذخیره‌شده برای استفادهٔ دوباره پیدا نشد یا مال این دسته نیست.', 404, 'result_not_found');
+  }
+  let brief: Brief | undefined = reused?.brief;
+  if (reused) step('brief', 'استفاده از بریف و پیش‌نویس نتیجهٔ قبلی');
   for (let attempt = 1; attempt <= 2 && !brief; attempt++) {
     const raw = await generateText(briefMessages(briefInput), {
       model: briefModel,
@@ -279,7 +286,7 @@ async function runCategoryContentInner(
   const scale = req.lengthScale && req.lengthScale >= 0.3 && req.lengthScale <= 1.5
     ? req.lengthScale
     : lengthFactor(draftModel) * (freeHumanizer ? 0.7 : 1);
-  step('draft', `نگارش با ${draftModel}`);
+  if (!reused) step('draft', `نگارش با ${draftModel}`);
   const draftInput = {
     category: briefInput.category,
     industry: [l1Cat.name, l2Cat && !isOwnL2 ? l2Cat.name : null].filter(Boolean).join(' / '),
@@ -290,7 +297,9 @@ async function runCategoryContentInner(
     profileCautions: [...(l1?.cautions ?? []), ...(l2?.cautions ?? [])],
     words: { min: Math.round(words.min * scale), max: Math.round(words.max * scale) },
   };
-  let draft: DraftSections | undefined;
+  let draft: DraftSections | undefined = reused
+    ? { above: reused.content.above, below: reused.draftBelow, metaTitle: reused.content.metaTitle, metaDescription: reused.content.metaDescription }
+    : undefined;
   let lastParsed: DraftSections | undefined;
   for (let attempt = 1; attempt <= 3 && !draft; attempt++) {
     const raw = await generateText(draftMessages(draftInput), {
@@ -349,7 +358,7 @@ async function runCategoryContentInner(
   // ---------- 3b. targeted repair of the draft (cheap, one call, kept only if QA improves) ----------
   let repair: ContentResult['repair'];
   const draftQa = runQa({ ...qaBase, above: draft!.above, below: draft!.below, metaTitle: draft!.metaTitle, metaDescription: draft!.metaDescription });
-  const problems = process.env.CONTENT_REPAIR === 'off' ? [] : repairProblems(draftQa, effectiveTier, cat.name);
+  const problems = process.env.CONTENT_REPAIR === 'off' || reused ? [] : repairProblems(draftQa, effectiveTier, cat.name);
   if (problems.length) {
     step('repair', `اصلاح ${problems.length} ایراد پیش‌نویس با ${draftModel}`);
     repair = { ran: true, accepted: false, problems, before: { level: draftQa.level, words: draftQa.words } };
