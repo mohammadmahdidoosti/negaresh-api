@@ -381,8 +381,11 @@ async function runCategoryContentInner(
           perspective: 'third_person',
           quality: 'precise',
           keywords,
-          targetWords: Math.min(3000, Math.max(100, draftWords)),
-          wordTolerance: 0.15,
+          // The humanizer's writer naturally expands ~1.4–1.6×. A target equal to the draft length forced a
+          // "compress" refine that rewrote the text back to the draft (87–95% sentences unchanged).
+          // 'light': aim 1.3× with ±25% (accepts 0.98–1.6×); 'strict': keep the draft length.
+          targetWords: Math.min(3000, Math.max(100, Math.round(draftWords * (guardMode === 'strict' ? 1 : 1.3)))),
+          wordTolerance: guardMode === 'strict' ? 0.15 : 0.25,
           articleGoal: cleanBrief.angle.slice(0, 2000),
           audience: (l1?.audience_desc ?? '').slice(0, 2000),
           // store page: theme owns the H1. 'strict' also forbids new claims and length changes.
