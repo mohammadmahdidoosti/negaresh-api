@@ -37,6 +37,8 @@ export interface ContentRequest {
   label?: string;
   /** Multiplier on the word range asked of the draft model (experiments); default per model, see lengthFactor. */
   lengthScale?: number;
+  /** Writer model inside the humanizer for this run (default: CONTENT_HUMANIZER_WRITER or the humanizer's own). */
+  humanizerWriter?: string;
 }
 
 export interface ContentResult {
@@ -45,7 +47,7 @@ export interface ContentResult {
   label?: string;
   promptVersion: string;
   category: { id: string; name: string; path: string; level: number; tier: Tier; productCount: number; url: string | null; flags: string };
-  models: { brief: string; draft: string; humanize: boolean; lengthScale?: number };
+  models: { brief: string; draft: string; humanize: boolean; lengthScale?: number; humanizerWriter?: string };
   data: { productSample: number; brands: Array<{ brand: string; count: number }>; specs: Record<string, string[]>; siteError?: string };
   brief: Brief & { droppedFacts: number };
   content: DraftSections;
@@ -334,6 +336,7 @@ async function runCategoryContentInner(
   }
 
   // ---------- 4. humanize ----------
+  const humanizerWriter = req.humanizerWriter || process.env.CONTENT_HUMANIZER_WRITER?.trim() || undefined;
   let finalBelow = draft!.below;
   const humanized: ContentResult['humanized'] = { applied: false };
   if (req.humanize !== false) {
@@ -358,6 +361,7 @@ async function runCategoryContentInner(
         },
         (stage, message) => step(`humanize:${stage}`, message),
         ctx,
+        humanizerWriter ? { writerModel: humanizerWriter } : {},
       );
       finalBelow = restoreZwnj(demoteH1(out.text), keywords);
       humanized.applied = true;
@@ -382,7 +386,7 @@ async function runCategoryContentInner(
     ...(req.label ? { label: req.label } : {}),
     promptVersion: PROMPT_VERSION,
     category: { id: cat.id, name: cat.name, path, level: cat.level, tier: effectiveTier, productCount, url: products.live?.link ?? null, flags: cat.flags },
-    models: { brief: briefModel, draft: draftModel, humanize: humanized.applied, lengthScale: scale },
+    models: { brief: briefModel, draft: draftModel, humanize: humanized.applied, lengthScale: scale, ...(humanizerWriter ? { humanizerWriter } : {}) },
     data: { productSample: products.names.length, brands: products.brands, specs: products.specs, ...(products.error ? { siteError: products.error } : {}) },
     brief: cleanBrief,
     content,

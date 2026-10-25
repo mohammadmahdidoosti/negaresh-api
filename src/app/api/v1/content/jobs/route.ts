@@ -1,6 +1,6 @@
 /**
  * POST /api/v1/content/jobs — queue category content generation (one job per category).
- *   body: { category?: string, categories?: string[], draftModel?, briefModel?, humanize?: boolean, force?: boolean, label?, lengthScale?: 0.4–1.5 }
+ *   body: { category?: string, categories?: string[], draftModel?, briefModel?, humanize?: boolean, force?: boolean, label?, lengthScale?: 0.4–1.5, humanizerWriter? }
  * GET  /api/v1/content/jobs — status of recent content jobs (without full results).
  * Poll each job at GET /api/v1/jobs/{id}.
  */
@@ -8,7 +8,7 @@ import { apiError, requireApiKey } from '@/lib/api/auth';
 import { publicOrigin } from '@/lib/api/http';
 import { createTask, listJobs, QueueFullError, serializeJob } from '@/lib/api/jobs';
 import { readBoundedJson } from '@/lib/request-body';
-import { runCategoryContent, type ContentRequest } from '@/lib/content/pipeline';
+import { DRAFT_MODELS, runCategoryContent, type ContentRequest } from '@/lib/content/pipeline';
 import { findCategory } from '@/lib/content/taxonomy';
 
 export const runtime = 'nodejs';
@@ -39,6 +39,8 @@ export async function POST(request: Request) {
     humanize: body.humanize !== false,
     force: body.force === true,
     ...(typeof body.label === 'string' && body.label ? { label: body.label.slice(0, 80) } : {}),
+    // allowed humanizer writers: the configured draft models (same price caps), e.g. DeepSeek
+    ...(typeof body.humanizerWriter === 'string' && DRAFT_MODELS().includes(body.humanizerWriter) ? { humanizerWriter: body.humanizerWriter } : {}),
     ...(typeof body.lengthScale === 'number' && body.lengthScale >= 0.4 && body.lengthScale <= 1.5 ? { lengthScale: body.lengthScale } : {}),
   };
   const origin = publicOrigin(request);

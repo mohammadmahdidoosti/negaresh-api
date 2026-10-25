@@ -372,7 +372,19 @@ export async function generateText(
 }
 
 /** Shared writing loop: generate + optional critic + at most one refine. */
-export async function rewriteText(req: HumanizeRequest, onStep?: WritingStepHandler, context = createExecutionContext()) {
+/** Optional per-call model overrides (content pipeline experiments); the web tool never passes them. */
+export interface RoleModelOverrides {
+  writerModel?: string;
+  criticModel?: string;
+  refinerModel?: string;
+}
+
+export async function rewriteText(
+  req: HumanizeRequest,
+  onStep?: WritingStepHandler,
+  context = createExecutionContext(),
+  models: RoleModelOverrides = {},
+) {
   const invalid = validateInput(req.text) || validateLengthOptions(req.targetWords, req.wordTolerance);
   if (invalid) throw new HumanizerError(invalid, 400);
   const config = getLlmConfig();
@@ -387,9 +399,9 @@ export async function rewriteText(req: HumanizeRequest, onStep?: WritingStepHand
       req,
       (messages, options) => callLlm(messages, config, options, context),
       {
-        writerModel: config.writerModel,
-        criticModel: config.criticModel,
-        refinerModel: config.refinerModel,
+        writerModel: models.writerModel || config.writerModel,
+        criticModel: models.criticModel || config.criticModel,
+        refinerModel: models.refinerModel || config.refinerModel,
         onStep,
         combinedReview: process.env.LLM_COMBINED_REVIEW !== "false",
         signal: context.signal,
