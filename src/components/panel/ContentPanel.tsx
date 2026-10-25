@@ -78,6 +78,18 @@ const usd = (value: number | null | undefined) => (typeof value === 'number' ? `
 const wordCount = (text: string) => (text.trim() ? text.trim().split(/\s+/).length : 0);
 const isActive = (job: ContentJob) => job.status === 'queued' || job.status === 'running';
 
+interface SavedSummary {
+	resultId: string;
+	createdAt: string;
+	label: string | null;
+	category: { id: string; name: string; tier: string; productCount: number };
+	models: { brief: string; draft: string; humanize: boolean };
+	qa: QaLevel;
+	words: number;
+	costUsd: number | null;
+	durationMs: number;
+}
+
 function formatDuration(ms: number) {
 	const seconds = Math.max(0, Math.round(ms / 1000));
 	return `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, '0')}`;
@@ -85,6 +97,10 @@ function formatDuration(ms: number) {
 function formatTime(iso: string) {
 	const date = new Date(iso);
 	return Number.isNaN(date.getTime()) ? '—' : date.toLocaleTimeString('fa-IR', { hour: '2-digit', minute: '2-digit' });
+}
+function formatDateTime(iso: string) {
+	const date = new Date(iso);
+	return Number.isNaN(date.getTime()) ? '—' : date.toLocaleString('fa-IR', { month: 'long', day: 'numeric', hour: '2-digit', minute: '2-digit' });
 }
 function safeHtml(markdown: string | undefined) {
 	try {
@@ -194,6 +210,8 @@ export default function ContentPanel() {
 	const [ioMessage, setIoMessage] = useState('');
 	const fileRef = useRef<HTMLInputElement>(null);
 
+	const [saved, setSaved] = useState<SavedSummary[]>([]);
+	const [savedLabel, setSavedLabel] = useState('');
 	const [result, setResult] = useState<ContentResult | null>(null);
 	const [resultLoading, setResultLoading] = useState<string | null>(null);
 	const [resultError, setResultError] = useState('');
@@ -292,6 +310,28 @@ export default function ContentPanel() {
 			clearInterval(tick);
 		};
 	}, [anyActive, refreshJobs]);
+
+	/* ----- saved results (persistent store) ----- */
+	const refreshSaved = useCallback(async () => {
+		if (!apiKey) return;
+		try {
+			const res = await fetch('/api/v1/content/results', { headers, cache: 'no-store' });
+			const data = await res.json();
+			if (res.ok) setSaved((data.items ?? []) as SavedSummary[]);
+		} catch {
+			/* keep previous list */
+		}
+	}, [apiKey, headers]);
+
+	const succeededCount = jobs.filter(j => j.status === 'succeeded').length;
+	useEffect(() => {
+		if (!apiKey) return;
+		const timer = setTimeout(() => void refreshSaved(), 0);
+		return () => clearTimeout(timer);
+	}, [apiKey, refreshSaved, succeededCount]);
+
+	const savedLabels = useMemo(() => [...new Set(saved.map(r => r.label ?? ''))], [saved]);
+	const savedVisible = useMemo(() => saved.filter(r => !savedLabel || (r.label ?? '') === savedLabel), [saved, savedLabel]);
 
 	/* ----- selection ----- */
 	const selectedKeys = useMemo(() => new Set(selected.map(item => item.key)), [selected]);
@@ -708,7 +748,80 @@ export default function ContentPanel() {
 				{resultError && <p className='mt-3 text-sm text-error-ink'>{resultError}</p>}
 			</Card>
 
-			{/* ---------------- 4. result viewer ---------------- */}
+			{/* ---------------- 4. saved results ---------------- */}
+			<Card
+				kicker='۴'
+				title={`نتایج ذخیره‌شده (${saved.length.toLocaleString('fa-IR')})`}
+				actions={
+					<div className='flex flex-wrap items-center gap-2'>
+						<select className='field !min-h-10 !py-1.5 text-xs' value={savedLabel} onChange={event => setSavedLabel(event.target.value)} aria-label='فیلتر بر اساس برچسب'>
+							<option value=''>همهٔ برچسب‌ها</option>
+							{savedLabels.map(l => (
+								<option key={l || 'none'} value={l}>
+									{l || 'بدون برچسب'}
+								</option>
+							))}
+						</select>
+						<button type='button' className='outline-button' onClick={() => void refreshSaved()} disabled={!apiKey}>
+							<RefreshCw size={16} aria-hidden /> به‌روزرسانی
+						</button>
+					</div>
+				}
+			>
+				<p className='mb-3 text-xs leading-6 text-smoke'>همهٔ خروجی‌های تولیدشده اینجا می‌مانند (حتی بعد از خوابیدن سرویس)؛ برای هر دسته ۵ نسخهٔ آخر نگه داشته می‌شود.</p>
+				{savedVisible.length === 0 ? (
+					<p className='rounded-[20px] border border-ash bg-parchment p-4 text-sm text-smoke'>نتیجه‌ای ذخیره نشده است.</p>
+				) : (
+					<div className='overflow-x-auto'>
+						<table className='w-full min-w-[820px] text-right text-sm'>
+							<thead className='text-xs text-smoke'>
+								<tr>
+									<th className='py-2 font-normal'>دسته</th>
+									<th className='py-2 font-normal'>سطح</th>
+									<th className='py-2 font-normal'>مدل</th>
+									<th className='py-2 font-normal'>هیومنایز</th>
+									<th className='py-2 font-normal'>QA</th>
+									<th className='py-2 font-normal'>کلمه</th>
+									<th className='py-2 font-normal'>هزینه ($)</th>
+									<th className='py-2 font-normal'>تاریخ</th>
+									<th className='py-2 font-normal' aria-label='عملیات' />
+								</tr>
+							</thead>
+							<tbody>
+								{savedVisible.map(r => (
+									<tr key={r.resultId} className='border-t border-ash align-top'>
+										<td className='max-w-56 py-2.5 pl-3'>
+											<span className='font-medium text-off-black'>{r.category.name}</span>
+											{r.label && <span className='block text-xs text-smoke'>{r.label}</span>}
+										</td>
+										<td className='py-2.5 pl-3 text-xs'>{TIER_LABELS[r.category.tier] ?? r.category.tier}</td>
+										<td className='py-2.5 pl-3 font-mono text-xs' dir='ltr'>{r.models.draft}</td>
+										<td className='py-2.5 pl-3 text-xs'>{r.models.humanize ? 'بله' : 'خیر'}</td>
+										<td className='py-2.5 pl-3'><QaBadge level={r.qa} /></td>
+										<td className='py-2.5 pl-3 font-mono text-xs' dir='ltr'>{r.words}</td>
+										<td className='py-2.5 pl-3 font-mono text-xs' dir='ltr'>{usd(r.costUsd ?? undefined)}</td>
+										<td className='py-2.5 pl-3 text-xs whitespace-nowrap text-graphite'><bdi>{formatDateTime(r.createdAt)}</bdi></td>
+										<td className='py-2.5 whitespace-nowrap'>
+											<button
+												type='button'
+												className='outline-button !min-h-9 !px-3 !text-xs'
+												onClick={() => void openResult(r.resultId)}
+												disabled={resultLoading === r.resultId}
+												aria-pressed={result?.resultId === r.resultId}
+											>
+												{resultLoading === r.resultId ? <LoaderCircle size={13} className='animate-spin' aria-hidden /> : <Eye size={13} aria-hidden />}
+												مشاهده
+											</button>
+										</td>
+									</tr>
+								))}
+							</tbody>
+						</table>
+					</div>
+				)}
+			</Card>
+
+			{/* ---------------- 5. result viewer ---------------- */}
 			{result && (
 				<div ref={viewerRef} className='scroll-mt-6'>
 					<ResultViewer result={result} belowHtml={belowHtml} draftHtml={draftHtml} tab={tab} setTab={setTab} copied={copied} copy={copy} onClose={() => setResult(null)} />
