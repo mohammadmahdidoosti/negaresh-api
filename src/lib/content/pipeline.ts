@@ -73,6 +73,20 @@ const caps = () => ({
   maxOutputPrice: Number(env('CONTENT_MAX_OUTPUT_PRICE', '25')),
 });
 
+/**
+ * Models differ in how they read a word budget: DeepSeek writes ~1.5–1.8× the asked length, Sonnet stays in range.
+ * The draft is asked for (range × factor); QA still measures against the real range.
+ * CONTENT_LENGTH_FACTORS="deepseek=0.6,gemini=0.8" (substring of the model id = factor).
+ */
+export function lengthFactor(model: string): number {
+  for (const pair of env('CONTENT_LENGTH_FACTORS', 'deepseek=0.6').split(',')) {
+    const [key, value] = pair.split('=').map(x => x.trim());
+    const f = Number(value);
+    if (key && model.includes(key) && f > 0.2 && f <= 1.5) return f;
+  }
+  return 1;
+}
+
 const MAX_TOKENS: Record<Tier, number> = { hub: 8000, standard: 5000, small: 3500, skip: 3000 };
 
 /** The theme renders the category name as H1, so any H1 in content becomes an H2. */
@@ -114,7 +128,9 @@ export function repairProblems(qa: { checks: QaCheck[]; words: number }, tier: T
   if (by.has('placeholders')) out.push('جاهای خالی [[...]] را حذف کن و جمله را بدون آن کامل کن.');
   if (by.has('h2-count')) out.push(`تیتر هر بخش اصلی باید H2 (## ) باشد و فقط سؤال‌های متداول H3 (### ) باشند؛ حداقل ${tier === 'hub' ? 7 : tier === 'standard' ? 5 : 3} تیتر ##.`);
   if (qa.words > range.max * 1.1) {
-    out.push(`راهنمای زیر لیست (BELOW) ${qa.words} کلمه است؛ آن را به حدود ${Math.round((range.min + range.max) / 2)} کلمه کوتاه کن (بازهٔ ${range.min} تا ${range.max}) با حذف تکرار، توضیح کلی و جمله‌های اضافه. هیچ بخش الزامی، جدول یا سؤال متداول را کامل حذف نکن.`);
+    const aim = Math.round((range.min + range.max) / 2);
+    const cut = Math.round((1 - aim / qa.words) * 100);
+    out.push(`راهنمای زیر لیست (BELOW) ${qa.words} کلمه است و باید حدود ${aim} کلمه شود: از هر بخش حدود ${cut}٪ کم کن (پاراگراف‌ها را به ۲ تا ۳ جمله برسان، جمله‌های تکراری و توضیح کلی را حذف کن، پاسخ هر سؤال متداول حداکثر ۲ جمله). تیترها، جدول و بولت‌های «قبل از سفارش» بمانند.`);
   }
   if (by.has('kw-title') || by.has('meta-title')) out.push(`عنوان سئو (META_TITLE) را ۳۰ تا ۶۰ نویسه بنویس و با «${name}» شروع کن.`);
   if (by.has('meta-desc')) out.push(`توضیح متا (META_DESCRIPTION) را ۱۲۰ تا ۱۵۵ نویسه بنویس، شامل «${name}»، بدون قیمت و اغراق.`);
@@ -225,7 +241,7 @@ async function runCategoryContentInner(
     audienceDesc: l1?.audience_desc ?? '',
     sectionRules: l1?.section_rules ?? { include: [], exclude: [] },
     profileCautions: [...(l1?.cautions ?? []), ...(l2?.cautions ?? [])],
-    words,
+    words: { min: Math.round(words.min * lengthFactor(draftModel)), max: Math.round(words.max * lengthFactor(draftModel)) },
   };
   let draft: DraftSections | undefined;
   for (let attempt = 1; attempt <= 2 && !draft; attempt++) {
