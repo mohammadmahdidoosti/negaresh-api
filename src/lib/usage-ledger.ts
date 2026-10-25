@@ -100,8 +100,9 @@ export function usageByStage(runId: string) {
   try {
     return db.prepare(`SELECT stage, COALESCE(actual_model, requested_model) AS model, COUNT(*) AS calls,
       COALESCE(SUM(cost_usd),0) AS usd, COALESCE(SUM(prompt_tokens),0) AS promptTokens,
-      COALESCE(SUM(completion_tokens),0) AS completionTokens FROM attempts WHERE run_id=? GROUP BY stage, model ORDER BY usd DESC`)
-      .all(runId) as Array<{ stage: string; model: string; calls: number; usd: number; promptTokens: number; completionTokens: number }>;
+      COALESCE(SUM(completion_tokens),0) AS completionTokens, COALESCE(SUM(reasoning_tokens),0) AS reasoningTokens,
+      GROUP_CONCAT(COALESCE(finish_reason,'?')) AS finish FROM attempts WHERE run_id=? GROUP BY stage, model ORDER BY usd DESC`)
+      .all(runId) as Array<{ stage: string; model: string; calls: number; usd: number; promptTokens: number; completionTokens: number; reasoningTokens: number; finish: string }>;
   } finally { db.close(); }
 }
 

@@ -58,7 +58,13 @@ export interface ContentResult {
   brief: Brief & { droppedFacts: number };
   content: DraftSections;
   draftBelow: string;
-  humanized: { applied: boolean; warning?: string; sourceKept?: boolean };
+  humanized: {
+    applied: boolean;
+    warning?: string;
+    sourceKept?: boolean;
+    /** Humanizer internals, to see why a rewrite was kept or replaced. */
+    diag?: { chosen?: string; firstDraftMissingAnchors?: string[]; criticVerdict: string | null; refineRan: boolean; refinedIssueCodes: string[]; initialIssues: string[]; missingAnchors: string[]; llmCalls: number };
+  };
   /** Optional targeted fix of QA problems in the draft, before humanizing. */
   repair?: { ran: boolean; accepted: boolean; problems: string[]; before: { level: QaLevel; words: number }; after?: { level: QaLevel; words: number } };
   qa: { level: QaLevel; checks: QaCheck[]; words: number };
@@ -68,7 +74,7 @@ export interface ContentResult {
     promptTokens: number;
     completionTokens: number;
     calls: number;
-    byStage?: Array<{ stage: string; model: string; calls: number; usd: number }>;
+    byStage?: Array<{ stage: string; model: string; calls: number; usd: number; completionTokens?: number; reasoningTokens?: number; finish?: string }>;
   };
   durationMs: number;
 }
@@ -389,6 +395,16 @@ async function runCategoryContentInner(
       finalBelow = keepDraftHeadings(restoreZwnj(demoteH1(out.text), keywords), draft!.below, guardMode === 'strict');
       humanized.applied = true;
       if (out.quality.sourceKept) humanized.sourceKept = true;
+      humanized.diag = {
+        chosen: out.quality.chosen,
+        firstDraftMissingAnchors: out.quality.firstDraftMissingAnchors,
+        criticVerdict: out.quality.criticVerdict ?? null,
+        refineRan: out.quality.refineRan,
+        refinedIssueCodes: out.quality.refinedIssueCodes ?? [],
+        initialIssues: out.quality.initial.issues.map(i => `${i.code}: ${i.fix}`.slice(0, 200)),
+        missingAnchors: (out.validation.missingAnchors ?? []).slice(0, 30),
+        llmCalls: out.quality.llmCalls,
+      };
       if (out.quality.warnings.length) humanized.warning = out.quality.warnings.join(' ');
     } catch (error) {
       ctx.signal?.throwIfAborted();
@@ -423,7 +439,10 @@ async function runCategoryContentInner(
       promptTokens: usage?.promptTokens ?? 0,
       completionTokens: usage?.completionTokens ?? 0,
       calls: usage?.attempts ?? 0,
-      byStage: usageByStage(ctx.runId).map(r => ({ stage: r.stage, model: r.model, calls: r.calls, usd: Number(r.usd.toFixed(5)) })),
+      byStage: usageByStage(ctx.runId).map(r => ({
+        stage: r.stage, model: r.model, calls: r.calls, usd: Number(r.usd.toFixed(5)),
+        completionTokens: r.completionTokens, reasoningTokens: r.reasoningTokens, finish: r.finish,
+      })),
     },
     durationMs: Date.now() - started,
   };

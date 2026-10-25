@@ -356,7 +356,10 @@ export async function runWritingLoop(req: HumanizeRequest, llm: WritingLlm, loop
 		const score = judgeLocally(req, value);
 		return (report.hardMissingAnchors?.length ?? 0) * 1000 + score.issues.filter(issue => ['meaning_drift', 'fabricated_detail'].includes(issue.code)).length * 100 + score.issues.length + guardPenalty(value);
 	};
+	const refinedCandidate = text;
 	text = candidates.sort((a, b) => rank(a) - rank(b))[0] ?? req.text;
+	quality.chosen = !candidates.length ? 'source' : text === firstDraft ? 'first' : text === refinedCandidate ? 'refined' : 'source';
+	quality.firstDraftMissingAnchors = verifyInvariants(firstDraft, requiredAnchors, req.text).hardMissingAnchors?.slice(0, 20) ?? [];
 	// With guards on, a rewrite that still breaks one is worse than the source it was given.
 	if ((guards.noNewClaims || guards.holdLength) && candidates.length && guardPenalty(text) > 0) {
 		quality.warnings.push('همهٔ بازنویسی‌ها ادعای تازه یا طول اضافه داشتند؛ متن اصلی نگه داشته شد.');

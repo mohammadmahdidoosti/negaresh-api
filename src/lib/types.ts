@@ -162,6 +162,9 @@ export interface QualityReport {
 	refinedIssueCodes?: CriticCode[];
 	/** Guards were on and every rewrite broke one, so the source text was returned. */
 	sourceKept?: boolean;
+	/** Which candidate was returned (diagnostics). */
+	chosen?: 'first' | 'refined' | 'source';
+	firstDraftMissingAnchors?: string[];
 	/** Writing-loop calls only; the separate E-E-A-T analysis call is excluded. */
 	llmCalls: number;
 	humanReviewRequired: boolean;
