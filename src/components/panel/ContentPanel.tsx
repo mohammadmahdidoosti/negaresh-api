@@ -768,7 +768,7 @@ export default function ContentPanel() {
 					</div>
 				}
 			>
-				<p className='mb-3 text-xs leading-6 text-smoke'>همهٔ خروجی‌های تولیدشده اینجا می‌مانند (حتی بعد از خوابیدن سرویس)؛ برای هر دسته ۵ نسخهٔ آخر نگه داشته می‌شود.</p>
+				<p className='mb-3 text-xs leading-6 text-smoke'>همهٔ خروجی‌های تولیدشده اینجا می‌مانند (حتی بعد از خوابیدن سرویس)؛ برای هر دسته ۱۰ نسخهٔ آخر نگه داشته می‌شود.</p>
 				{savedVisible.length === 0 ? (
 					<p className='rounded-[20px] border border-ash bg-parchment p-4 text-sm text-smoke'>نتیجه‌ای ذخیره نشده است.</p>
 				) : (
