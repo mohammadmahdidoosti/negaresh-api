@@ -112,3 +112,10 @@ test("repair asks to shorten, drop hype/unsupported numbers, never to lengthen",
   const short = repairProblems({ checks: [], words: 200 }, "standard", "PU");
   assert.deepEqual(short, []);
 });
+
+test("text with every ZWNJ dropped is detected", async () => {
+  const { zwnjHealthy } = await jiti.import("../src/lib/content/pipeline.ts");
+  const good = "این کلید در تابلوهای توزیع به‌کار می‌رود و قطع‌کننده‌ای مطمئن است. ".repeat(10);
+  assert.equal(zwnjHealthy(good), true);
+  assert.equal(zwnjHealthy(good.replace(/‌/g, "")), false);
+});

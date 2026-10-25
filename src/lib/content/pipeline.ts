@@ -87,6 +87,16 @@ export function lengthFactor(model: string): number {
   return 1;
 }
 
+/**
+ * Some DeepSeek responses arrive with every ZWNJ dropped («میرود»، «قطعکننده»). Normal Persian output has
+ * a ZWNJ every ~15–20 words; a long text with almost none is regenerated rather than "repaired" by guessing.
+ */
+export function zwnjHealthy(text: string): boolean {
+  const words = countWords(text);
+  if (words < 80) return true;
+  return (text.match(/\u200c/g) ?? []).length >= words * 0.01;
+}
+
 const MAX_TOKENS: Record<Tier, number> = { hub: 8000, standard: 5000, small: 3500, skip: 3000 };
 
 /** The theme renders the category name as H1, so any H1 in content becomes an H2. */
@@ -244,7 +254,8 @@ async function runCategoryContentInner(
     words: { min: Math.round(words.min * lengthFactor(draftModel)), max: Math.round(words.max * lengthFactor(draftModel)) },
   };
   let draft: DraftSections | undefined;
-  for (let attempt = 1; attempt <= 2 && !draft; attempt++) {
+  let lastParsed: DraftSections | undefined;
+  for (let attempt = 1; attempt <= 3 && !draft; attempt++) {
     const raw = await generateText(draftMessages(draftInput), {
       model: draftModel,
       maxTokens: MAX_TOKENS[effectiveTier],
@@ -255,9 +266,14 @@ async function runCategoryContentInner(
     }, ctx);
     const parsed = parseDraft(raw);
     parsed.below = normalizeHeadings(demoteH1(parsed.below));
-    if (parsed.above && parsed.below) draft = parsed;
-    else if (attempt === 2) throw new PipelineError('خروجی نگارش ساختار مورد انتظار را نداشت.', 502, 'draft_invalid');
+    if (parsed.above && parsed.below) {
+      lastParsed = parsed;
+      if (zwnjHealthy(`${parsed.above}\n${parsed.below}`)) draft = parsed;
+      else step('draft', 'نیم‌فاصله‌های پیش‌نویس حذف شده بود؛ نگارش دوباره');
+    }
   }
+  draft ??= lastParsed;
+  if (!draft) throw new PipelineError('خروجی نگارش ساختار مورد انتظار را نداشت.', 502, 'draft_invalid');
 
   const evidence = [
     cat.name,
@@ -302,7 +318,8 @@ async function runCategoryContentInner(
         const fixedQa = runQa({ ...qaBase, above: fixed.above, below: fixed.below, metaTitle: fixed.metaTitle, metaDescription: fixed.metaDescription });
         repair.after = { level: fixedQa.level, words: fixedQa.words };
         // must not lose much of the guide (a model that "fixes" by deleting sections is rejected)
-        if (qaScore(fixedQa) < qaScore(draftQa) && fixedQa.words >= TIER_WORDS[effectiveTier].min * 0.85) {
+        const keepsZwnj = zwnjHealthy(`${fixed.above}\n${fixed.below}`) || !zwnjHealthy(`${draft!.above}\n${draft!.below}`);
+        if (keepsZwnj && qaScore(fixedQa) < qaScore(draftQa) && fixedQa.words >= TIER_WORDS[effectiveTier].min * 0.85) {
           draft = fixed;
           repair.accepted = true;
         }

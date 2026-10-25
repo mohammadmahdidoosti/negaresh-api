@@ -4,7 +4,7 @@
  */
 import type { Tier } from './taxonomy';
 
-export const PROMPT_VERSION = 'content-v1.4';
+export const PROMPT_VERSION = 'content-v1.5';
 
 export interface BriefInput {
   category: {

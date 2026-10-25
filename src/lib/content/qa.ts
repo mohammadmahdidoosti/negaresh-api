@@ -100,6 +100,9 @@ export function runQa(q: QaInput): { level: QaLevel; checks: QaCheck[]; words: n
   const placeholders = (all.match(/\[\[[^\]]+\]\]/g) ?? []).length;
   add('placeholders', placeholders === 0 ? 'pass' : placeholders <= 2 ? 'warn' : 'fail', 'جای خالی نیازمند منبع', placeholders ? `${placeholders} مورد` : undefined);
   add('site-data', q.siteDataAvailable ? 'pass' : 'warn', 'دادهٔ زندهٔ محصولات از سایت');
+  const textWords = countWords(`${q.above}\n${q.below}`);
+  const zwnj = (`${q.above}\n${q.below}`.match(/\u200c/g) ?? []).length;
+  add('zwnj', textWords < 80 || zwnj >= textWords * 0.01 ? 'pass' : 'warn', 'نیم‌فاصله‌ها سالم (مثل «می‌شود»)', `${zwnj} نیم‌فاصله در ${textWords} کلمه`);
 
   // 5. meta
   const t = q.metaTitle.length;
