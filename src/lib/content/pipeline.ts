@@ -119,6 +119,22 @@ export function restoreZwnj(md: string, keep: string[] = []): string {
     .replace(/([\u0600-\u06FF]) (ها|های|هایی|هایم|هایش|تر|ترین)(?=[\s،؛.!؟:)»]|$)/g, '$1\u200c$2'), keep);
 }
 
+/**
+ * Headings come from the brief (SEO + structure); the humanizer may only reword the body.
+ * Same heading count → put the draft's headings back in order; otherwise at least undo a «جمع‌بندی/نتیجه‌گیری» rename.
+ */
+export function keepDraftHeadings(final: string, draft: string): string {
+  const re = /^#{2,4}[ \t].*$/gm;
+  const want = draft.match(re) ?? [];
+  const got = final.match(re) ?? [];
+  if (want.length && want.length === got.length) {
+    let i = 0;
+    return final.replace(re, () => want[i++]);
+  }
+  const lastH2 = [...want].reverse().find(h => h.startsWith('## '));
+  return lastH2 ? final.replace(/^##[ \t].*(نتیجه[\u200c ]?گیری|جمع[\u200c ]?بندی).*$/gm, lastH2) : final;
+}
+
 function asVoice(v: string): Voice {
   return (VOICES as readonly string[]).includes(v) ? (v as Voice) : 'standard';
 }
@@ -363,7 +379,7 @@ async function runCategoryContentInner(
         ctx,
         humanizerWriter ? { writerModel: humanizerWriter } : {},
       );
-      finalBelow = restoreZwnj(demoteH1(out.text), keywords);
+      finalBelow = keepDraftHeadings(restoreZwnj(demoteH1(out.text), keywords), draft!.below);
       humanized.applied = true;
       if (out.quality.sourceKept) humanized.sourceKept = true;
       if (out.quality.warnings.length) humanized.warning = out.quality.warnings.join(' ');

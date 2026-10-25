@@ -119,3 +119,10 @@ test("text with every ZWNJ dropped is detected", async () => {
   assert.equal(zwnjHealthy(good), true);
   assert.equal(zwnjHealthy(good.replace(/‌/g, "")), false);
 });
+
+test("humanized text keeps the draft's headings", async () => {
+  const { keepDraftHeadings } = await jiti.import("../src/lib/content/pipeline.ts");
+  const draft = "## الف\nمتن\n## خرید از کاروان صنعت\nمتن";
+  assert.equal(keepDraftHeadings("## الف تازه\nمتن نو\n## جمع بندی\nمتن نو", draft), "## الف\nمتن نو\n## خرید از کاروان صنعت\nمتن نو");
+  assert.equal(keepDraftHeadings("## الف\nمتن\n## ب\n## جمع‌بندی\nمتن", draft), "## الف\nمتن\n## ب\n## خرید از کاروان صنعت\nمتن");
+});
