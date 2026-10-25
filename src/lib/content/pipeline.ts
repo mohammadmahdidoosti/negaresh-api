@@ -292,7 +292,7 @@ async function runCategoryContentInner(
     },
     durationMs: Date.now() - started,
   };
-  saveResult(result);
+  await saveResult(result);
   step('done', `پایان؛ کنترل کیفیت: ${qa.level}`);
   return result;
 }

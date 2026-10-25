@@ -19,6 +19,7 @@
     "next": "16.3.3",
     "react": "19.2.8",
     "react-dom": "19.2.8",
+    "redis": "^4.7.1",
     "thinking-orbs": "^0.3.1"
   },
   "devDependencies": {

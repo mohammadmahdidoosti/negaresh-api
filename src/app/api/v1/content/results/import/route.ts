@@ -14,6 +14,6 @@ export async function POST(request: Request) {
     return apiError(400, 'invalid_json', 'بدنهٔ درخواست JSON معتبر نیست.');
   }
   if (!Array.isArray(body.items)) return apiError(400, 'invalid_body', 'فیلد items لازم است.');
-  const imported = importResults(body.items as never[]);
+  const imported = await importResults(body.items as never[]);
   return Response.json({ ok: true, imported });
 }

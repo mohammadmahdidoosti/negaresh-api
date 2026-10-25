@@ -9,7 +9,7 @@ export async function GET(request: Request) {
   const denied = requireApiKey(request);
   if (denied) return denied;
   const full = new URL(request.url).searchParams.get('full') === '1';
-  const items = listResults();
+  const items = await listResults();
   const body = full
     ? { ok: true, exportedAt: new Date().toISOString(), items }
     : {
