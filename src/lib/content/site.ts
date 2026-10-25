@@ -29,14 +29,27 @@ export interface ProductData {
 
 const cache = new Map<string, { at: number; value: ProductData }>();
 
+/** The store can be slow under load: 60 s per request and one retry after a short pause. */
 async function getJson<T>(path: string, signal?: AbortSignal): Promise<{ data: T; headers: Headers }> {
-  const timeout = AbortSignal.timeout(25_000);
-  const res = await fetch(`${SITE}${path}`, {
-    headers: { 'User-Agent': UA, Accept: 'application/json' },
-    signal: signal ? AbortSignal.any([signal, timeout]) : timeout,
-  });
-  if (!res.ok) throw new Error(`HTTP ${res.status} for ${path.split('?')[0]}`);
-  return { data: (await res.json()) as T, headers: res.headers };
+  let lastError: unknown;
+  for (let attempt = 1; attempt <= 2; attempt++) {
+    signal?.throwIfAborted();
+    const timeout = AbortSignal.timeout(60_000);
+    try {
+      const res = await fetch(`${SITE}${path}`, {
+        headers: { 'User-Agent': UA, Accept: 'application/json' },
+        signal: signal ? AbortSignal.any([signal, timeout]) : timeout,
+      });
+      if (res.ok) return { data: (await res.json()) as T, headers: res.headers };
+      lastError = new Error(`HTTP ${res.status} for ${path.split('?')[0]}`);
+      if (res.status < 500 && res.status !== 429) break;
+    } catch (error) {
+      if (signal?.aborted) throw error;
+      lastError = error;
+    }
+    if (attempt === 1) await new Promise(r => setTimeout(r, 3000));
+  }
+  throw lastError;
 }
 
 export async function fetchLiveCategory(slug: string, signal?: AbortSignal): Promise<LiveCategory | null> {
@@ -124,9 +137,10 @@ export async function fetchProductData(slug: string, knownBrands: string[], sign
       const names: string[] = [];
       let inStock = 0;
       let total = live.count;
-      for (let page = 1; page <= 3; page++) {
+      for (let page = 1; page <= 2; page++) {
+        // _fields keeps the response ~15× smaller than full product objects
         const { data, headers } = await getJson<Array<{ name: string; is_in_stock: boolean }>>(
-          `/wp-json/wc/store/v1/products?category=${live.wpId}&per_page=100&page=${page}`,
+          `/wp-json/wc/store/v1/products?category=${live.wpId}&per_page=100&page=${page}&_fields=name,is_in_stock`,
           signal,
         );
         total = Number(headers.get('x-wp-total')) || total;
