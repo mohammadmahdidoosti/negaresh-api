@@ -9,7 +9,7 @@ import { PipelineError, type StepEvent } from '@/lib/api/runner';
 import { createExecutionContext, generateText, HumanizerError, rewriteText } from '@/lib/humanizer';
 import { countWords, transformUnprotected } from '@/lib/text';
 import { CONTENT_TYPES, VOICES, type ContentType, type Voice } from '@/lib/types';
-import { usageSummary } from '@/lib/usage-ledger';
+import { usageByStage, usageSummary } from '@/lib/usage-ledger';
 import { briefMessages, draftMessages, parseBrief, parseDraft, PROMPT_VERSION, type Brief, type DraftSections } from './prompts';
 import { runQa, type QaCheck, type QaLevel } from './qa';
 import { fetchProductData } from './site';
@@ -48,10 +48,16 @@ export interface ContentResult {
   brief: Brief & { droppedFacts: number };
   content: DraftSections;
   draftBelow: string;
-  humanized: { applied: boolean; warning?: string };
+  humanized: { applied: boolean; warning?: string; sourceKept?: boolean };
   qa: { level: QaLevel; checks: QaCheck[]; words: number };
   qaDraft: { level: QaLevel; words: number };
-  cost: { usd: number | null; promptTokens: number; completionTokens: number; calls: number };
+  cost: {
+    usd: number | null;
+    promptTokens: number;
+    completionTokens: number;
+    calls: number;
+    byStage?: Array<{ stage: string; model: string; calls: number; usd: number }>;
+  };
   durationMs: number;
 }
 
@@ -59,7 +65,7 @@ const env = (name: string, fallback: string) => process.env[name]?.trim() || fal
 export const DEFAULT_BRIEF_MODEL = () => env('CONTENT_BRIEF_MODEL', 'anthropic/claude-haiku-5.5');
 export const DEFAULT_DRAFT_MODEL = () => env('CONTENT_DRAFT_MODEL', 'anthropic/claude-sonnet-5.5');
 export const DRAFT_MODELS = () =>
-  [...new Set([DEFAULT_DRAFT_MODEL(), ...env('CONTENT_DRAFT_MODELS', 'anthropic/claude-sonnet-5.5,google/gemini-4-argon,openai/gpt-6.1-sol').split(',').map(s => s.trim()).filter(Boolean)])];
+  [...new Set([DEFAULT_DRAFT_MODEL(), ...env('CONTENT_DRAFT_MODELS', 'anthropic/claude-sonnet-5.5,deepseek/deepseek-v4-flash-0731,google/gemini-4-argon,openai/gpt-6.1-sol').split(',').map(s => s.trim()).filter(Boolean)])];
 const caps = () => ({
   maxInputPrice: Number(env('CONTENT_MAX_INPUT_PRICE', '5')),
   maxOutputPrice: Number(env('CONTENT_MAX_OUTPUT_PRICE', '25')),
@@ -230,12 +236,15 @@ async function runCategoryContentInner(
           wordTolerance: 0.15,
           articleGoal: cleanBrief.angle.slice(0, 2000),
           audience: (l1?.audience_desc ?? '').slice(0, 2000),
+          // store page: theme owns the H1; no new numbers/guarantees; keep the draft's length
+          guards: { embedded: true, noNewClaims: true, holdLength: true },
         },
         (stage, message) => step(`humanize:${stage}`, message),
         ctx,
       );
       finalBelow = restoreZwnj(demoteH1(out.text), keywords);
       humanized.applied = true;
+      if (out.quality.sourceKept) humanized.sourceKept = true;
       if (out.quality.warnings.length) humanized.warning = out.quality.warnings.join(' ');
     } catch (error) {
       ctx.signal?.throwIfAborted();
@@ -289,6 +298,7 @@ async function runCategoryContentInner(
       promptTokens: usage?.promptTokens ?? 0,
       completionTokens: usage?.completionTokens ?? 0,
       calls: usage?.attempts ?? 0,
+      byStage: usageByStage(ctx.runId).map(r => ({ stage: r.stage, model: r.model, calls: r.calls, usd: Number(r.usd.toFixed(5)) })),
     },
     durationMs: Date.now() - started,
   };

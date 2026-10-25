@@ -94,6 +94,17 @@ export function usageSummary(runId?: string) {
   } finally { db.close(); }
 }
 
+/** Cost per stage and model for one run (content pipeline reporting). */
+export function usageByStage(runId: string) {
+  const db = database();
+  try {
+    return db.prepare(`SELECT stage, COALESCE(actual_model, requested_model) AS model, COUNT(*) AS calls,
+      COALESCE(SUM(cost_usd),0) AS usd, COALESCE(SUM(prompt_tokens),0) AS promptTokens,
+      COALESCE(SUM(completion_tokens),0) AS completionTokens FROM attempts WHERE run_id=? GROUP BY stage, model ORDER BY usd DESC`)
+      .all(runId) as Array<{ stage: string; model: string; calls: number; usd: number; promptTokens: number; completionTokens: number }>;
+  } finally { db.close(); }
+}
+
 export function unsettledGenerations() {
   const db = database();
   try { return db.prepare('SELECT id,generation_id FROM attempts WHERE cost_usd IS NULL AND generation_id IS NOT NULL').all() as Array<{ id: string; generation_id: string }>; }

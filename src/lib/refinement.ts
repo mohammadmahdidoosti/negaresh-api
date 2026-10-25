@@ -46,6 +46,21 @@ export interface WritingLoopConfig {
 	signal?: AbortSignal;
 }
 
+const toLatinDigits = (value: string) =>
+	value.replace(/[۰-۹]/g, d => String('۰۱۲۳۴۵۶۷۸۹'.indexOf(d))).replace(/[٠-٩]/g, d => String('٠١٢٣٤٥٦٧٨٩'.indexOf(d)));
+const flatPersian = (value: string) => toLatinDigits(value).replace(/^[ \t]*\d+[.)][ \t]+/gm, '').replace(/\u200c/g, ' ').replace(/[ \t]+/g, ' ');
+const CLAIM_WORDS = ['تضمین', 'گارانتی', 'صد درصد', '100%', '100٪', 'بهترین', 'برترین', 'بی نظیر', 'بی رقیب', 'اورجینال', 'ارسال رایگان', 'ارزان ترین', 'تخفیف', 'تومان'];
+
+/** Numbers and absolute/promotional claims present in the candidate but absent from the source. */
+export function newClaims(candidate: string, source: string): string[] {
+	const cand = flatPersian(candidate);
+	const src = flatPersian(source);
+	const srcNumbers = new Set(src.match(/\d+(?:[.,/]\d+)?/g) ?? []);
+	const numbers = [...new Set(cand.match(/\d+(?:[.,/]\d+)?/g) ?? [])].filter(n => !srcNumbers.has(n));
+	const words = CLAIM_WORDS.filter(word => cand.includes(word) && !src.includes(word));
+	return [...numbers, ...words];
+}
+
 const DEFAULT_LOOP_MODELS = {
 	writerModel: 'writer',
 	criticModel: 'critic',
@@ -214,6 +229,19 @@ export async function runWritingLoop(req: HumanizeRequest, llm: WritingLlm, loop
 		);
 	}
 
+	const addedClaims = req.guards?.noNewClaims ? newClaims(text, req.text) : [];
+	if (addedClaims.length) {
+		refineRequest = localRepair(
+			req,
+			lintSnapshot,
+			[
+				...(refineRequest?.issues ?? []),
+				{ code: 'fabricated_detail', fix: `این موارد در متن اصلی نبودند؛ حذفشان کن یا به همان ادعای اصلی برگردان: ${addedClaims.slice(0, 12).join('، ')}` },
+			],
+			['همه داده ها و ادعاهای سالم اصل'],
+		);
+	}
+
 	if (initial.verdict === 'hard-fail') {
 		refineRequest = localRepair(req, lintSnapshot, [...(refineRequest?.issues ?? []), ...initial.issues], [
 			'همه داده ها و ادعاهای سالم اصل',
@@ -313,12 +341,28 @@ export async function runWritingLoop(req: HumanizeRequest, llm: WritingLlm, loop
 
 	// Prefer the generated candidate with fewer factual failures, then fewer editorial issues.
 	const candidates = [text, firstDraft].filter(value => value.trim() && !value.includes(protectedSource.prefix + '_'));
+	const guards = req.guards ?? {};
+	const guardPenalty = (value: string) => {
+		let penalty = 0;
+		if (guards.noNewClaims) penalty += newClaims(value, req.text).length * 100;
+		if (guards.holdLength) {
+			const target = judgeLocally(req, value).wordTarget;
+			if (target && target.actual > target.max) penalty += 100;
+		}
+		return penalty;
+	};
 	const rank = (value: string) => {
 		const report = verifyInvariants(value, requiredAnchors, req.text);
 		const score = judgeLocally(req, value);
-		return (report.hardMissingAnchors?.length ?? 0) * 1000 + score.issues.filter(issue => ['meaning_drift', 'fabricated_detail'].includes(issue.code)).length * 100 + score.issues.length;
+		return (report.hardMissingAnchors?.length ?? 0) * 1000 + score.issues.filter(issue => ['meaning_drift', 'fabricated_detail'].includes(issue.code)).length * 100 + score.issues.length + guardPenalty(value);
 	};
 	text = candidates.sort((a, b) => rank(a) - rank(b))[0] ?? req.text;
+	// With guards on, a rewrite that still breaks one is worse than the source it was given.
+	if ((guards.noNewClaims || guards.holdLength) && candidates.length && guardPenalty(text) > 0) {
+		quality.warnings.push('همهٔ بازنویسی‌ها ادعای تازه یا طول اضافه داشتند؛ متن اصلی نگه داشته شد.');
+		quality.sourceKept = true;
+		text = req.text;
+	}
 	if (text !== firstDraft || quality.refineRan) combinedAnalysis = null;
 	if (!candidates.length) { quality.humanReviewRequired = true; quality.warnings.push('بازنویسی کامل نشد؛ متن اصلی برای شما حفظ شده است.'); }
 	loop.signal?.throwIfAborted();

@@ -2,7 +2,7 @@ import { lengthInstruction, lengthPlan } from "./length";
 import { combinedReviewSkill } from "./skills/combined-review";
 /** Compose only the bounded skills needed for each model stage. */
 import type { CriticResult, HumanizeRequest, LocalScorecard } from "./types";
-import { coreSkill, rewriteContract, textOnlyContract } from "./skills/core";
+import { coreSkill, embeddedContract, rewriteContract, textOnlyContract } from "./skills/core";
 import {
   humanizeSkill,
   humanizerRefineSkill,
@@ -29,9 +29,18 @@ export function buildGenerationSystemPrompt(req: HumanizeRequest): string {
     qualitySkills[req.quality],
     ...[getPerspectiveSkill(req.perspective)].filter(Boolean),
     markdownSkill,
-    rewriteContract,
+    req.guards?.embedded ? embeddedContract : rewriteContract,
+    ...guardInstructions(req),
     lengthInstruction(req),
   ].join("\n\n");
+}
+
+/** Opt-in guard rules; empty for the default web tool. */
+function guardInstructions(req: HumanizeRequest): string[] {
+  const out: string[] = [];
+  if (req.guards?.noNewClaims) out.push("[No New Claims]\nDo not add any number, measurement, guarantee, warranty, \"best/only/100%\" superlative, free-shipping or price claim that is not already in the original. Rewording an existing claim is fine; strengthening it is not.");
+  if (req.guards?.holdLength) out.push("[Length]\nKeep the rewrite at about the original length. Do not add new sections, examples or explanations; improve the wording of what is there.");
+  return out;
 }
 
 /** JSON encoding keeps source and optional trusted context distinctly labelled. */
@@ -64,6 +73,8 @@ export function buildCriticSystemPrompt(req: HumanizeRequest, combined = false):
     humanizerReviewSkill,
     criticSkill,
     ...(combined ? [combinedReviewSkill] : []),
+    ...(req.guards?.embedded ? ["[Embedded Section]\nThis text is a section inside a page that already has its own title. A missing # title is correct; a # heading is an invalid_markdown issue."] : []),
+    ...guardInstructions(req),
     lengthInstruction(req),
     voiceSkills[req.voice],
     contentTypeSkills[req.contentType],
@@ -94,7 +105,8 @@ export function buildRefineSystemPrompt(req: HumanizeRequest): string {
     qualitySkills[req.quality],
     ...[getPerspectiveSkill(req.perspective)].filter(Boolean),
     markdownSkill,
-    textOnlyContract,
+    req.guards?.embedded ? embeddedContract : textOnlyContract,
+    ...guardInstructions(req),
     lengthInstruction(req),
   ].join("\n\n");
 }

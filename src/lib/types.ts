@@ -57,6 +57,17 @@ export interface HumanizeRequest {
 	authorProfile?: string;
 	writerSample?: string;
 	keywords?: readonly string[];
+	/** Opt-in guards for text embedded in an existing page (e.g. store category content). Off by default. */
+	guards?: HumanizeGuards;
+}
+
+export interface HumanizeGuards {
+	/** The page already has its title: never add a # heading and do not require one. */
+	embedded?: boolean;
+	/** Numbers and absolute/promotional claims absent from the source count as fabricated detail. */
+	noNewClaims?: boolean;
+	/** Prefer the candidate that stays inside the word target; fall back to the source if every rewrite breaks a guard. */
+	holdLength?: boolean;
 }
 
 export interface StyleMetrics {
@@ -149,6 +160,8 @@ export interface QualityReport {
 	criticVerdict: 'pass' | 'refine' | 'unavailable' | null;
 	refineRan: boolean;
 	refinedIssueCodes?: CriticCode[];
+	/** Guards were on and every rewrite broke one, so the source text was returned. */
+	sourceKept?: boolean;
 	/** Writing-loop calls only; the separate E-E-A-T analysis call is excluded. */
 	llmCalls: number;
 	humanReviewRequired: boolean;

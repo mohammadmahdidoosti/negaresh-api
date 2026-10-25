@@ -24,3 +24,11 @@ export const rewriteContract = `
 `.trim();
 
 export const textOnlyContract = rewriteContract;
+
+/** Opt-in contract for text that is embedded in a page which already has its own title (H1). */
+export const embeddedContract = `
+[Output Contract]
+- Format: Return ONLY the final transformed Persian Markdown section.
+- Structure: The host page already has its title. Do NOT add any # heading. Keep the source's ## / ### section structure.
+- Prohibitions: Do NOT wrap the document in code fences (\`\`\`markdown ... \`\`\`). Do NOT include JSON, editorial logs, quality scores, introductory greetings, or concluding meta-announcements.
+`.trim();

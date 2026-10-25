@@ -98,14 +98,17 @@ function hasSymmetricList(text: string): boolean {
   });
 }
 
-function markdownProblem(text: string, source: string): string | null {
+function markdownProblem(text: string, source: string, embedded = false): string | null {
   for (const span of extractProtectedSpans(source)) {
     if (span.kind === "code") text = text.replace(span.value, "");
   }
   if (/```|~~~/.test(text)) return "حصار کد را حذف کن و خود سند Markdown را مستقیم برگردان.";
   const headings = [...text.matchAll(/^\s*(#{1,6})[ \t]+\S.*$/gm)]
     .map((match) => match[1].length);
-  if (text.length >= 600) {
+  if (embedded) {
+    // Embedded section: the host page owns the title, so a # heading is the problem, not its absence.
+    if (headings.includes(1)) return "این متن بخشی از یک صفحه است و عنوان صفحه جداست؛ عنوان # را حذف کن و فقط ## و ### نگه دار.";
+  } else if (text.length >= 600) {
     const h1Count = headings.filter((level) => level === 1).length;
     if (h1Count !== 1 || !headings.includes(2)) {
       return "برای مقاله بلند یک عنوان # و دست کم یک بخش منطقی ## بساز؛ بخش نمایشی نساز.";
@@ -210,7 +213,7 @@ export function judgeLocally(req: HumanizeRequest, text: string): LocalScorecard
     add("stock_pattern", "خط تیره بلند را با نقطه، ویرگول، دونقطه یا بازنویسی جمله جایگزین کن؛ نمونه نویسنده از آن استفاده نکرده است.");
   }
 
-  const markdownIssue = markdownProblem(text, req.text);
+  const markdownIssue = markdownProblem(text, req.text, req.guards?.embedded === true);
   if (markdownIssue) add("invalid_markdown", markdownIssue);
 
   const opening = firstProseBlock(text);
