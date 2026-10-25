@@ -79,3 +79,9 @@ test("post-humanize fixes: H1 demoted and standard ZWNJ restored", async () => {
   assert.ok(out.includes("بزرگ‌تر"));
   assert.ok(out.includes("IP 65"));
 });
+
+test("QA: no false alarms for «متریال» or everyday-word brands like «هدف»", () => {
+  const r = runQa({ ...base, knownBrands: ["هدف", "پارس فانال"], above: `کنتاکتور ${words(70)}`, below: `## الف\nکنتاکتور با متریال مقاوم؛ هدف انتخاب درست است.\n## سوالات متداول\n${words(300)}` });
+  assert.equal(r.checks.find(c => c.id === "no-price").level, "pass");
+  assert.equal(r.checks.find(c => c.id === "brands").level, "pass");
+});

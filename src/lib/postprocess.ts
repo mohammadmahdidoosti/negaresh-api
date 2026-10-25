@@ -22,13 +22,20 @@ function sanitizePunctuation(part: string): { text: string; fixes: number } {
     .replace(/[ \t]+([،؛,.:!?؟»\)])/g, "$1")
     .replace(/([«\(])[ \t]+/g, "$1")
     .replace(/([،,؛;])\s*\1+/g, "$1")
-    .replace(/^[ \t]*[،,؛;]+[ \t]*/gm, "")
-    .replace(/[ \t]+[،,؛;]+[ \t]*(?=[.!؟?\n]|$)/g, "")
+    // Line-start / line-end comma rules run on the whole text (see stripHangingCommas): inside a
+    // fragment between two protected numbers, "^" and "$" would match and delete the separator,
+    // turning «۱۲، ۲۰، ۲۵» into «۱۲۲۰۲۵».
+    .replace(/[ \t]+[،,؛;]+[ \t]*(?=[.!؟?\n])/g, "")
     .replace(/([.!؟?]){2,}/g, "$1")
     .replace(/\u200c{2,}/g, "\u200c")
     .replace(/[ \t]+\n/g, "\n")
     .replace(/\n{3,}/g, "\n\n");
   return { text, fixes: text === before ? 0 : 1 };
+}
+
+/** Leading commas at a real line start, and hanging commas at a real line end. */
+function stripHangingCommas(text: string): string {
+  return text.replace(/^[ \t]*[،,؛;]+[ \t]*/gm, "").replace(/[ \t]+[،,؛;]+[ \t]*$/gm, "");
 }
 
 export function applyPostPass(
@@ -44,7 +51,7 @@ export function applyPostPass(
     return cleaned;
   }, keywords);
   return {
-    text: normalizePersianText(result, keywords).trim(),
+    text: normalizePersianText(stripHangingCommas(result), keywords).trim(),
     splits: 0,
     surfaceFixes,
     clichesRemoved: 0,

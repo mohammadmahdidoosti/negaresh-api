@@ -1282,3 +1282,10 @@ test('friendly anchor warning appears only when final anchor terms disagree', as
     assert.ok(result.text);
   }
 });
+
+test("post-pass keeps commas between numbers (no «۱۲، ۲۰» → «۱۲۲۰»)", () => {
+  const out = applyPostPass("ردیف‌های ۱۲، ۲۰، ۲۵ و ۶۰ کیلووار و ولتاژ ۲۴، ۱۱۰ یا ۲۲۰ ولت.\n، خط با ویرگول اول", "readable").text;
+  assert.ok(out.includes("۱۲، ۲۰، ۲۵"), out);
+  assert.ok(out.includes("۲۴، ۱۱۰"), out);
+  assert.ok(!/^،/m.test(out), out);
+});

@@ -73,7 +73,8 @@ export function runQa(q: QaInput): { level: QaLevel; checks: QaCheck[]; words: n
 
   // 4. accuracy
   const all = `${q.above}\n${q.below}\n${q.metaTitle}\n${q.metaDescription}`;
-  const price = all.match(/(تومان|ریال|قیمت\s*[0-9۰-۹]|تخفیف\s*[0-9۰-۹]|ارسال رایگان)/);
+  // whole words only: «ریال» must not match inside «متریال»
+  const price = all.match(/(?<![\p{L}])(تومان|ریال|قیمت\s*[0-9۰-۹]|تخفیف\s*[0-9۰-۹]|ارسال رایگان)(?![\p{L}])/u);
   add('no-price', price ? 'fail' : 'pass', 'بدون قیمت، تخفیف یا وعدهٔ ارسال', price?.[0]);
   const evidenceNums = new Set(specNumbers(q.evidence));
   const unknown = [...new Set(specNumbers(all))].filter(n => !evidenceNums.has(n));
@@ -85,7 +86,10 @@ export function runQa(q: QaInput): { level: QaLevel; checks: QaCheck[]; words: n
   );
   const allowed = q.allowedBrands.map(norm);
   const text = ` ${norm(all).replace(/[^\p{L}\p{N}]+/gu, ' ')} `;
+  // Brand names that are also everyday Persian words cannot be checked by word matching.
+  const COMMON = new Set(['هدف', 'راحت', 'اتصال', 'پارس', 'رعد', 'صبا', 'توسن', 'وال', 'ایران', 'برکت', 'نوین', 'پیشرو']);
   const foreign = q.knownBrands.filter(b => {
+    if (COMMON.has(norm(b))) return false;
     const nb = norm(b).replace(/[^\p{L}\p{N}]+/gu, ' ').trim();
     // whole-word match only, so «وال» does not match inside «سوالات»
     return nb.length >= 2 && text.includes(` ${nb} `) && !allowed.some(a => a.includes(nb) || nb.includes(a));
