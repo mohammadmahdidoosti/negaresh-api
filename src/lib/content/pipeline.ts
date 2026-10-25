@@ -39,6 +39,12 @@ export interface ContentRequest {
   lengthScale?: number;
   /** Writer model inside the humanizer for this run (default: CONTENT_HUMANIZER_WRITER or the humanizer's own). */
   humanizerWriter?: string;
+  /**
+   * How much the humanizer is constrained. 'light' (default): only "no H1" — the humanizer rewrites freely and
+   * our QA flags problems afterwards. 'strict': also no new claims + hold length + source fallback (too conservative:
+   * 88–100% of sentences came back unchanged).
+   */
+  humanizerGuards?: 'light' | 'strict';
 }
 
 export interface ContentResult {
@@ -47,7 +53,7 @@ export interface ContentResult {
   label?: string;
   promptVersion: string;
   category: { id: string; name: string; path: string; level: number; tier: Tier; productCount: number; url: string | null; flags: string };
-  models: { brief: string; draft: string; humanize: boolean; lengthScale?: number; humanizerWriter?: string };
+  models: { brief: string; draft: string; humanize: boolean; lengthScale?: number; humanizerWriter?: string; humanizerGuards?: string };
   data: { productSample: number; brands: Array<{ brand: string; count: number }>; specs: Record<string, string[]>; siteError?: string };
   brief: Brief & { droppedFacts: number };
   content: DraftSections;
@@ -123,11 +129,11 @@ export function restoreZwnj(md: string, keep: string[] = []): string {
  * Headings come from the brief (SEO + structure); the humanizer may only reword the body.
  * Same heading count → put the draft's headings back in order; otherwise at least undo a «جمع‌بندی/نتیجه‌گیری» rename.
  */
-export function keepDraftHeadings(final: string, draft: string): string {
+export function keepDraftHeadings(final: string, draft: string, all = true): string {
   const re = /^#{2,4}[ \t].*$/gm;
   const want = draft.match(re) ?? [];
   const got = final.match(re) ?? [];
-  if (want.length && want.length === got.length) {
+  if (all && want.length && want.length === got.length) {
     let i = 0;
     return final.replace(re, () => want[i++]);
   }
@@ -353,6 +359,7 @@ async function runCategoryContentInner(
 
   // ---------- 4. humanize ----------
   const humanizerWriter = req.humanizerWriter || process.env.CONTENT_HUMANIZER_WRITER?.trim() || undefined;
+  const guardMode = req.humanizerGuards ?? (process.env.CONTENT_HUMANIZER_GUARDS === 'strict' ? 'strict' : 'light');
   let finalBelow = draft!.below;
   const humanized: ContentResult['humanized'] = { applied: false };
   if (req.humanize !== false) {
@@ -372,14 +379,14 @@ async function runCategoryContentInner(
           wordTolerance: 0.15,
           articleGoal: cleanBrief.angle.slice(0, 2000),
           audience: (l1?.audience_desc ?? '').slice(0, 2000),
-          // store page: theme owns the H1; no new numbers/guarantees; keep the draft's length
-          guards: { embedded: true, noNewClaims: true, holdLength: true },
+          // store page: theme owns the H1. 'strict' also forbids new claims and length changes.
+          guards: guardMode === 'strict' ? { embedded: true, noNewClaims: true, holdLength: true } : { embedded: true },
         },
         (stage, message) => step(`humanize:${stage}`, message),
         ctx,
         humanizerWriter ? { writerModel: humanizerWriter } : {},
       );
-      finalBelow = keepDraftHeadings(restoreZwnj(demoteH1(out.text), keywords), draft!.below);
+      finalBelow = keepDraftHeadings(restoreZwnj(demoteH1(out.text), keywords), draft!.below, guardMode === 'strict');
       humanized.applied = true;
       if (out.quality.sourceKept) humanized.sourceKept = true;
       if (out.quality.warnings.length) humanized.warning = out.quality.warnings.join(' ');
@@ -402,7 +409,7 @@ async function runCategoryContentInner(
     ...(req.label ? { label: req.label } : {}),
     promptVersion: PROMPT_VERSION,
     category: { id: cat.id, name: cat.name, path, level: cat.level, tier: effectiveTier, productCount, url: products.live?.link ?? null, flags: cat.flags },
-    models: { brief: briefModel, draft: draftModel, humanize: humanized.applied, lengthScale: scale, ...(humanizerWriter ? { humanizerWriter } : {}) },
+    models: { brief: briefModel, draft: draftModel, humanize: humanized.applied, lengthScale: scale, ...(humanizerWriter ? { humanizerWriter } : {}), ...(humanized.applied ? { humanizerGuards: guardMode } : {}) },
     data: { productSample: products.names.length, brands: products.brands, specs: products.specs, ...(products.error ? { siteError: products.error } : {}) },
     brief: cleanBrief,
     content,

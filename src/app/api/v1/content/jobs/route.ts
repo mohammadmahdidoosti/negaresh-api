@@ -41,6 +41,7 @@ export async function POST(request: Request) {
     ...(typeof body.label === 'string' && body.label ? { label: body.label.slice(0, 80) } : {}),
     // allowed humanizer writers: the configured draft models (same price caps), e.g. DeepSeek
     ...(typeof body.humanizerWriter === 'string' && DRAFT_MODELS().includes(body.humanizerWriter) ? { humanizerWriter: body.humanizerWriter } : {}),
+    ...(body.humanizerGuards === 'light' || body.humanizerGuards === 'strict' ? { humanizerGuards: body.humanizerGuards } : {}),
     ...(typeof body.lengthScale === 'number' && body.lengthScale >= 0.4 && body.lengthScale <= 1.5 ? { lengthScale: body.lengthScale } : {}),
   };
   const origin = publicOrigin(request);
