@@ -1,13 +1,14 @@
 /**
  * Store of generated category content.
- * - Always keeps an in-memory cache (latest 5 results per category).
+ * - Always keeps an in-memory cache (latest 10 results per category).
  * - When REDIS_URL / KV_URL is set (Render Key Value), every result is also written there, so results
  *   survive restarts and sleep of the free web service.
  */
 import { createClient } from 'redis';
 import type { ContentResult } from './pipeline';
 
-const KEEP_PER_CATEGORY = 5;
+const KEEP_PER_CATEGORY = 10;
+const catKey = (categoryId: string) => `content:cat:${categoryId}`;
 type Client = ReturnType<typeof createClient>;
 
 const g = globalThis as typeof globalThis & {
@@ -52,7 +53,12 @@ async function ensureLoaded(): Promise<void> {
     for (let i = 0; i < ids.length; i += 100) {
       const batch = ids.slice(i, i + 100).map(id => `content:result:${id}`);
       const values = batch.length ? await client.mGet(batch) : [];
-      for (const v of values) if (v) remember(JSON.parse(v) as ContentResult);
+      for (const v of values) {
+        if (!v) continue;
+        const r = JSON.parse(v) as ContentResult;
+        remember(r);
+        await client.zAdd(catKey(r.category.id), { score: Date.parse(r.createdAt), value: r.resultId });
+      }
     }
     g.__negareshKvLoaded = true;
   } catch (error) {
@@ -61,27 +67,30 @@ async function ensureLoaded(): Promise<void> {
 }
 
 export async function saveResult(result: ContentResult): Promise<void> {
+  // Load first: trimming must see the results already stored, not just this process's memory
+  // (a fresh process after a deploy would otherwise delete every older result of the category).
+  await ensureLoaded();
   remember(result);
   const client = await kv();
   if (!client) return;
   try {
+    const score = Date.parse(result.createdAt);
     await client
       .multi()
       .set(`content:result:${result.resultId}`, JSON.stringify(result))
-      .zAdd('content:results', { score: Date.parse(result.createdAt), value: result.resultId })
+      .zAdd('content:results', { score, value: result.resultId })
+      .zAdd(catKey(result.category.id), { score, value: result.resultId })
       .exec();
-    // trim older results of this category beyond KEEP_PER_CATEGORY
-    const all = await client.zRange('content:results', 0, -1, { REV: true });
-    const keep = new Set((results.get(result.category.id) ?? []).map(r => r.resultId));
-    const sameCat: string[] = [];
-    for (let i = 0; i < all.length; i += 200) {
-      const vals = await client.mGet(all.slice(i, i + 200).map(id => `content:result:${id}`));
-      vals.forEach((v, k) => {
-        if (v && (JSON.parse(v) as ContentResult).category.id === result.category.id) sameCat.push(all[i + k]);
-      });
+    // keep the newest KEEP_PER_CATEGORY of this category (per-category index, no full scan)
+    const drop = await client.zRange(catKey(result.category.id), 0, -(KEEP_PER_CATEGORY + 1));
+    if (drop.length) {
+      await client
+        .multi()
+        .del(drop.map(id => `content:result:${id}`))
+        .zRem('content:results', drop)
+        .zRem(catKey(result.category.id), drop)
+        .exec();
     }
-    const drop = sameCat.filter(id => !keep.has(id));
-    if (drop.length) await client.multi().del(drop.map(id => `content:result:${id}`)).zRem('content:results', drop).exec();
   } catch (error) {
     console.error('[content-store] save failed:', error);
   }

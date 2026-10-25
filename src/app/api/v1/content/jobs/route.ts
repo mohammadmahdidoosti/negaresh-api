@@ -1,6 +1,6 @@
 /**
  * POST /api/v1/content/jobs — queue category content generation (one job per category).
- *   body: { category?: string, categories?: string[], draftModel?, briefModel?, humanize?: boolean, force?: boolean, label? }
+ *   body: { category?: string, categories?: string[], draftModel?, briefModel?, humanize?: boolean, force?: boolean, label?, lengthScale?: 0.4–1.5 }
  * GET  /api/v1/content/jobs — status of recent content jobs (without full results).
  * Poll each job at GET /api/v1/jobs/{id}.
  */
@@ -39,6 +39,7 @@ export async function POST(request: Request) {
     humanize: body.humanize !== false,
     force: body.force === true,
     ...(typeof body.label === 'string' && body.label ? { label: body.label.slice(0, 80) } : {}),
+    ...(typeof body.lengthScale === 'number' && body.lengthScale >= 0.4 && body.lengthScale <= 1.5 ? { lengthScale: body.lengthScale } : {}),
   };
   const origin = publicOrigin(request);
   const created = [];

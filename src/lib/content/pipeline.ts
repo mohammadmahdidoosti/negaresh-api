@@ -35,6 +35,8 @@ export interface ContentRequest {
   /** Generate even when the category has no products (default false). */
   force?: boolean;
   label?: string;
+  /** Multiplier on the word range asked of the draft model (experiments); default per model, see lengthFactor. */
+  lengthScale?: number;
 }
 
 export interface ContentResult {
@@ -43,7 +45,7 @@ export interface ContentResult {
   label?: string;
   promptVersion: string;
   category: { id: string; name: string; path: string; level: number; tier: Tier; productCount: number; url: string | null; flags: string };
-  models: { brief: string; draft: string; humanize: boolean };
+  models: { brief: string; draft: string; humanize: boolean; lengthScale?: number };
   data: { productSample: number; brands: Array<{ brand: string; count: number }>; specs: Record<string, string[]>; siteError?: string };
   brief: Brief & { droppedFacts: number };
   content: DraftSections;
@@ -242,6 +244,7 @@ async function runCategoryContentInner(
   const cleanBrief = { ...brief!, facts, brands, droppedFacts: brief!.facts.length - facts.length + (brief!.brands.length - brands.length) };
 
   // ---------- 3. draft ----------
+  const scale = req.lengthScale && req.lengthScale >= 0.4 && req.lengthScale <= 1.5 ? req.lengthScale : lengthFactor(draftModel);
   step('draft', `نگارش با ${draftModel}`);
   const draftInput = {
     category: briefInput.category,
@@ -251,7 +254,7 @@ async function runCategoryContentInner(
     audienceDesc: l1?.audience_desc ?? '',
     sectionRules: l1?.section_rules ?? { include: [], exclude: [] },
     profileCautions: [...(l1?.cautions ?? []), ...(l2?.cautions ?? [])],
-    words: { min: Math.round(words.min * lengthFactor(draftModel)), max: Math.round(words.max * lengthFactor(draftModel)) },
+    words: { min: Math.round(words.min * scale), max: Math.round(words.max * scale) },
   };
   let draft: DraftSections | undefined;
   let lastParsed: DraftSections | undefined;
@@ -379,7 +382,7 @@ async function runCategoryContentInner(
     ...(req.label ? { label: req.label } : {}),
     promptVersion: PROMPT_VERSION,
     category: { id: cat.id, name: cat.name, path, level: cat.level, tier: effectiveTier, productCount, url: products.live?.link ?? null, flags: cat.flags },
-    models: { brief: briefModel, draft: draftModel, humanize: humanized.applied },
+    models: { brief: briefModel, draft: draftModel, humanize: humanized.applied, lengthScale: scale },
     data: { productSample: products.names.length, brands: products.brands, specs: products.specs, ...(products.error ? { siteError: products.error } : {}) },
     brief: cleanBrief,
     content,
