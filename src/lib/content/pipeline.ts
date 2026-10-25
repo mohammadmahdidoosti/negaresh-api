@@ -10,7 +10,7 @@ import { createExecutionContext, generateText, HumanizerError, rewriteText } fro
 import { countWords, transformUnprotected } from '@/lib/text';
 import { CONTENT_TYPES, VOICES, type ContentType, type Voice } from '@/lib/types';
 import { usageByStage, usageSummary } from '@/lib/usage-ledger';
-import { briefMessages, draftMessages, parseBrief, parseDraft, PROMPT_VERSION, type Brief, type DraftSections } from './prompts';
+import { briefMessages, draftMessages, normalizeHeadings, parseBrief, parseDraft, PROMPT_VERSION, repairMessages, type Brief, type DraftSections } from './prompts';
 import { runQa, type QaCheck, type QaLevel } from './qa';
 import { fetchProductData } from './site';
 import { saveResult } from './store';
@@ -49,6 +49,8 @@ export interface ContentResult {
   content: DraftSections;
   draftBelow: string;
   humanized: { applied: boolean; warning?: string; sourceKept?: boolean };
+  /** Optional targeted fix of QA problems in the draft, before humanizing. */
+  repair?: { ran: boolean; accepted: boolean; problems: string[]; before: { level: QaLevel; words: number }; after?: { level: QaLevel; words: number } };
   qa: { level: QaLevel; checks: QaCheck[]; words: number };
   qaDraft: { level: QaLevel; words: number };
   cost: {
@@ -95,6 +97,31 @@ function asVoice(v: string): Voice {
 function asContentType(v: string): ContentType {
   return (CONTENT_TYPES as readonly string[]).includes(v) ? (v as ContentType) : 'commercial';
 }
+
+const detailList = (c?: QaCheck) => (c?.detail ?? '').replace(/^[^:]*:\s*/, '');
+
+/** QA findings the draft model can fix in one targeted edit. Never asks to add length (that invites filler). */
+export function repairProblems(qa: { checks: QaCheck[]; words: number }, tier: Tier, name: string): string[] {
+  const by = new Map(qa.checks.filter(c => c.level !== 'pass').map(c => [c.id, c]));
+  const range = TIER_WORDS[tier];
+  const out: string[] = [];
+  if (by.has('kw-above')) out.push(`نام دقیق دسته «${name}» را در جملهٔ اول متن بالای لیست (ABOVE) بیاور.`);
+  if (by.has('no-conclusion')) out.push('تیتر «نتیجه‌گیری/جمع‌بندی» را با یک تیتر جذاب دیگر عوض کن.');
+  if (by.has('no-price')) out.push(`قیمت، تخفیف و وعدهٔ ارسال را حذف کن (${by.get('no-price')!.detail ?? ''}).`);
+  if (by.has('brands')) out.push(`این برندها در این دسته فروخته نمی‌شوند؛ نامشان را حذف کن: ${by.get('brands')!.detail}`);
+  if (by.has('numbers')) out.push(`این عددها در دادهٔ محصولات نیستند؛ حذفشان کن یا جمله را بدون عدد بنویس: ${detailList(by.get('numbers'))}`);
+  if (by.has('hype')) out.push(`این کلمات تبلیغاتی را حذف یا با جملهٔ واقع‌بینانه جایگزین کن: ${by.get('hype')!.detail}`);
+  if (by.has('placeholders')) out.push('جاهای خالی [[...]] را حذف کن و جمله را بدون آن کامل کن.');
+  if (by.has('h2-count')) out.push(`تیتر هر بخش اصلی باید H2 (## ) باشد و فقط سؤال‌های متداول H3 (### ) باشند؛ حداقل ${tier === 'hub' ? 7 : tier === 'standard' ? 5 : 3} تیتر ##.`);
+  if (qa.words > range.max * 1.1) {
+    out.push(`راهنمای زیر لیست (BELOW) ${qa.words} کلمه است؛ آن را به حدود ${Math.round((range.min + range.max) / 2)} کلمه کوتاه کن (بازهٔ ${range.min} تا ${range.max}) با حذف تکرار، توضیح کلی و جمله‌های اضافه. هیچ بخش الزامی، جدول یا سؤال متداول را کامل حذف نکن.`);
+  }
+  if (by.has('kw-title') || by.has('meta-title')) out.push(`عنوان سئو (META_TITLE) را ۳۰ تا ۶۰ نویسه بنویس و با «${name}» شروع کن.`);
+  if (by.has('meta-desc')) out.push(`توضیح متا (META_DESCRIPTION) را ۱۲۰ تا ۱۵۵ نویسه بنویس، شامل «${name}»، بدون قیمت و اغراق.`);
+  return out;
+}
+
+const qaScore = (q: { checks: QaCheck[] }) => q.checks.reduce((n, c) => n + (c.level === 'fail' ? 10 : c.level === 'warn' ? 1 : 0), 0);
 
 export async function runCategoryContent(
   req: ContentRequest,
@@ -211,9 +238,63 @@ async function runCategoryContentInner(
       ...caps(),
     }, ctx);
     const parsed = parseDraft(raw);
-    parsed.below = demoteH1(parsed.below);
+    parsed.below = normalizeHeadings(demoteH1(parsed.below));
     if (parsed.above && parsed.below) draft = parsed;
     else if (attempt === 2) throw new PipelineError('خروجی نگارش ساختار مورد انتظار را نداشت.', 502, 'draft_invalid');
+  }
+
+  const evidence = [
+    cat.name,
+    path,
+    cat.synonyms,
+    ...products.names,
+    ...Object.entries(products.specs).flatMap(([u, v]) => v.map(x => `${x} ${u}`)),
+    JSON.stringify(l1 ?? {}),
+    JSON.stringify(l2 ?? {}),
+    ...facts.map(f => f.fact),
+  ].join('\n');
+  const qaBase = {
+    name: cat.name,
+    tier: effectiveTier,
+    evidence,
+    // a brand that is part of the category name or path is allowed by definition (e.g. «کلید فیوز زاویر»)
+    allowedBrands: [...brands.map(b => b.name), ...products.brands.map(b => b.brand), ...allKnownBrands().filter(b => norm(path).includes(norm(b)))],
+    knownBrands: allKnownBrands(),
+    siteDataAvailable: !products.error && products.names.length > 0,
+  };
+  // ---------- 3b. targeted repair of the draft (cheap, one call, kept only if QA improves) ----------
+  let repair: ContentResult['repair'];
+  const draftQa = runQa({ ...qaBase, above: draft!.above, below: draft!.below, metaTitle: draft!.metaTitle, metaDescription: draft!.metaDescription });
+  const problems = process.env.CONTENT_REPAIR === 'off' ? [] : repairProblems(draftQa, effectiveTier, cat.name);
+  if (problems.length) {
+    step('repair', `اصلاح ${problems.length} ایراد پیش‌نویس با ${draftModel}`);
+    repair = { ran: true, accepted: false, problems, before: { level: draftQa.level, words: draftQa.words } };
+    try {
+      const raw = await generateText(repairMessages(cat.name, draft!, problems), {
+        model: draftModel,
+        maxTokens: MAX_TOKENS[effectiveTier],
+        temperature: 0.2,
+        stage: 'content-repair',
+        useFallback: false,
+        ...caps(),
+      }, ctx);
+      const fixed = parseDraft(raw);
+      fixed.below = normalizeHeadings(demoteH1(fixed.below));
+      fixed.metaTitle ||= draft!.metaTitle;
+      fixed.metaDescription ||= draft!.metaDescription;
+      if (fixed.above && fixed.below) {
+        const fixedQa = runQa({ ...qaBase, above: fixed.above, below: fixed.below, metaTitle: fixed.metaTitle, metaDescription: fixed.metaDescription });
+        repair.after = { level: fixedQa.level, words: fixedQa.words };
+        // must not lose much of the guide (a model that "fixes" by deleting sections is rejected)
+        if (qaScore(fixedQa) < qaScore(draftQa) && fixedQa.words >= TIER_WORDS[effectiveTier].min * 0.85) {
+          draft = fixed;
+          repair.accepted = true;
+        }
+      }
+    } catch (error) {
+      ctx.signal?.throwIfAborted();
+      repair.problems.push(`اصلاح انجام نشد: ${error instanceof Error ? error.message.slice(0, 120) : ''}`);
+    }
   }
 
   // ---------- 4. humanize ----------
@@ -255,28 +336,8 @@ async function runCategoryContentInner(
   // ---------- 5. QA ----------
   step('qa', 'کنترل کیفیت خودکار');
   const content: DraftSections = { ...draft!, below: finalBelow };
-  const evidence = [
-    cat.name,
-    path,
-    cat.synonyms,
-    ...products.names,
-    ...Object.entries(products.specs).flatMap(([u, v]) => v.map(x => `${x} ${u}`)),
-    JSON.stringify(l1 ?? {}),
-    JSON.stringify(l2 ?? {}),
-    ...facts.map(f => f.fact),
-  ].join('\n');
-  const qaBase = {
-    name: cat.name,
-    tier: effectiveTier,
-    metaTitle: content.metaTitle,
-    metaDescription: content.metaDescription,
-    evidence,
-    allowedBrands: [...brands.map(b => b.name), ...products.brands.map(b => b.brand)],
-    knownBrands: allKnownBrands(),
-    siteDataAvailable: !products.error && products.names.length > 0,
-  };
-  const qa = runQa({ ...qaBase, above: content.above, below: content.below });
-  const qaDraftFull = runQa({ ...qaBase, above: content.above, below: draft!.below });
+  const qa = runQa({ ...qaBase, above: content.above, below: content.below, metaTitle: content.metaTitle, metaDescription: content.metaDescription });
+  const qaDraftFull = runQa({ ...qaBase, above: content.above, below: draft!.below, metaTitle: content.metaTitle, metaDescription: content.metaDescription });
 
   const usage = usageSummary(ctx.runId) as { knownCostUsd: number; promptTokens: number; completionTokens: number; attempts: number } | undefined;
   const result: ContentResult = {
@@ -291,6 +352,7 @@ async function runCategoryContentInner(
     content,
     draftBelow: draft!.below,
     humanized,
+    ...(repair ? { repair } : {}),
     qa,
     qaDraft: { level: qaDraftFull.level, words: qaDraftFull.words },
     cost: {

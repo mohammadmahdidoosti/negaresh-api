@@ -4,7 +4,7 @@
  */
 import type { Tier } from './taxonomy';
 
-export const PROMPT_VERSION = 'content-v1.2';
+export const PROMPT_VERSION = 'content-v1.3';
 
 export interface BriefInput {
   category: {
@@ -171,6 +171,35 @@ ${extraSections}
   ];
 }
 
+/** Serialize sections back into the marker format (used by the repair pass). */
+export function formatDraft(d: DraftSections): string {
+  return `===ABOVE===\n${d.above}\n===BELOW===\n${d.below}\n===META_TITLE===\n${d.metaTitle}\n===META_DESCRIPTION===\n${d.metaDescription}\n===END===`;
+}
+
+/**
+ * Some models nest every section under one H2 (## title, ### sections, #### questions).
+ * When the page has a single H2 followed by several H3, lift all deeper headings one level.
+ */
+export function normalizeHeadings(md: string): string {
+  const h2 = (md.match(/^##[ \t]/gm) ?? []).length;
+  const h3 = (md.match(/^###[ \t]/gm) ?? []).length;
+  if (h2 > 1 || h3 < 3) return md;
+  return md.replace(/^(#{3,6})([ \t])/gm, (_m, hashes: string, sp: string) => `${hashes.slice(1)}${sp}`);
+}
+
+/** Targeted edit of a draft: fix only the listed QA problems and return the same marker format. */
+export function repairMessages(name: string, draft: DraftSections, problems: string[]) {
+  const system = `تو ویراستار ارشد محتوای فروشگاه «کاروان صنعت» هستی. یک پیش‌نویس صفحهٔ دسته و فهرست ایرادهای کنترل کیفیت به تو داده می‌شود.
+فقط همین ایرادها را درست کن و بقیهٔ متن را تا حد ممکن دست‌نخورده نگه دار: ساختار، تیترها، جدول‌ها، سؤالات متداول و بخش پایانی بمانند.
+نام دسته «${name}» کلمهٔ کلیدی است و دقیقاً به همین شکل بماند. هیچ اطلاعات، عدد، برند یا ادعای تازه اضافه نکن.
+خروجی را دقیقاً با همان نشانه‌ها برگردان: ===ABOVE===، ===BELOW===، ===META_TITLE===، ===META_DESCRIPTION===، ===END===. هیچ توضیحی قبل یا بعد ننویس.`;
+  const user = `ایرادها:\n${problems.map((p, i) => `${i + 1}. ${p}`).join('\n')}\n\nپیش‌نویس:\n${formatDraft(draft)}`;
+  return [
+    { role: 'system' as const, content: system },
+    { role: 'user' as const, content: user },
+  ];
+}
+
 export interface DraftSections {
   above: string;
   below: string;
@@ -179,8 +208,9 @@ export interface DraftSections {
 }
 
 export function parseDraft(raw: string): DraftSections {
+  // Tolerant markers: "===TAG===", "=== TAG ===", "**===TAG===**" (some models decorate them).
   const grab = (tag: string) => {
-    const m = raw.match(new RegExp(`===${tag}===\\s*([\\s\\S]*?)(?====[A-Z_]+===|$)`));
+    const m = raw.match(new RegExp(`\\**={2,}\\s*${tag}\\s*={2,}\\**[ \\t]*\\n?([\\s\\S]*?)(?=\\**={2,}\\s*[A-Z_]+\\s*={2,}|$)`));
     return (m?.[1] ?? '').trim();
   };
   return { above: grab('ABOVE'), below: grab('BELOW'), metaTitle: grab('META_TITLE'), metaDescription: grab('META_DESCRIPTION') };

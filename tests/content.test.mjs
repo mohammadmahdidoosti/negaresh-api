@@ -85,3 +85,30 @@ test("QA: no false alarms for «متریال» or everyday-word brands like «ه
   assert.equal(r.checks.find(c => c.id === "no-price").level, "pass");
   assert.equal(r.checks.find(c => c.id === "brands").level, "pass");
 });
+
+test("draft parser tolerates decorated markers; headings nested under one H2 are lifted", async () => {
+  const { normalizeHeadings } = await jiti.import("../src/lib/content/prompts.ts");
+  const d = parseDraft("**=== ABOVE ===**\nبالا\n=== BELOW ===\n## الف\nمتن\n===META_TITLE===\nعنوان\n**===META_DESCRIPTION===**\nتوضیح\n===END===");
+  assert.equal(d.above, "بالا");
+  assert.equal(d.metaTitle, "عنوان");
+  assert.equal(d.metaDescription, "توضیح");
+  const nested = "## راهنما\nمتن\n### یک\n### دو\n### سه\n#### سؤال";
+  assert.equal(normalizeHeadings(nested), "## راهنما\nمتن\n## یک\n## دو\n## سه\n### سؤال");
+  const fine = "## یک\n### الف\n## دو\n### ب\n### ج\n### د";
+  assert.equal(normalizeHeadings(fine), fine);
+});
+
+test("repair asks to shorten, drop hype/unsupported numbers, never to lengthen", async () => {
+  const { repairProblems } = await jiti.import("../src/lib/content/pipeline.ts");
+  const checks = [
+    { id: "hype", level: "warn", label: "", detail: "تضمین" },
+    { id: "numbers", level: "fail", label: "", detail: "بدون پشتوانه: 24، 220" },
+    { id: "meta-title", level: "warn", label: "", detail: "67 نویسه" },
+  ];
+  const long = repairProblems({ checks, words: 1170 }, "standard", "PU");
+  assert.equal(long.length, 4);
+  assert.ok(long.some(p => p.includes("24، 220")));
+  assert.ok(long.some(p => p.includes("1170 کلمه")));
+  const short = repairProblems({ checks: [], words: 200 }, "standard", "PU");
+  assert.deepEqual(short, []);
+});
