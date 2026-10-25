@@ -68,3 +68,14 @@ test("QA does not match a brand inside another word", () => {
   assert.equal(r.checks.find(c => c.id === "brands").level, "pass");
   assert.equal(r.checks.find(c => c.id === "numbers").level, "pass");
 });
+
+test("post-humanize fixes: H1 demoted and standard ZWNJ restored", async () => {
+  const { demoteH1, restoreZwnj } = await jiti.import("../src/lib/content/pipeline.ts");
+  assert.equal(demoteH1("# عنوان\n## بخش"), "## عنوان\n## بخش");
+  const out = restoreZwnj("کنتاکتور ها می شود و نمی تواند بزرگ تر و بهترین ترین IP 65 کنتاکتور های پارس");
+  assert.ok(out.includes("کنتاکتور‌ها"));
+  assert.ok(out.includes("می‌شود"));
+  assert.ok(out.includes("نمی‌تواند"));
+  assert.ok(out.includes("بزرگ‌تر"));
+  assert.ok(out.includes("IP 65"));
+});

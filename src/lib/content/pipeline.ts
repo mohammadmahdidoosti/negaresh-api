@@ -7,7 +7,7 @@
 import { randomUUID } from 'node:crypto';
 import { PipelineError, type StepEvent } from '@/lib/api/runner';
 import { createExecutionContext, generateText, HumanizerError, rewriteText } from '@/lib/humanizer';
-import { countWords } from '@/lib/text';
+import { countWords, transformUnprotected } from '@/lib/text';
 import { CONTENT_TYPES, VOICES, type ContentType, type Voice } from '@/lib/types';
 import { usageSummary } from '@/lib/usage-ledger';
 import { briefMessages, draftMessages, parseBrief, parseDraft, PROMPT_VERSION, type Brief, type DraftSections } from './prompts';
@@ -66,6 +66,22 @@ const caps = () => ({
 });
 
 const MAX_TOKENS: Record<Tier, number> = { hub: 8000, standard: 5000, small: 3500, skip: 3000 };
+
+/** The theme renders the category name as H1, so any H1 in content becomes an H2. */
+export function demoteH1(md: string): string {
+  return md.replace(/^#\s+/gm, '## ');
+}
+
+/**
+ * The humanizer replaces every ZWNJ with a space (by design). For published store pages we restore
+ * only the standard, unambiguous joins: می/نمی + verb, and the suffixes ها/های/هایی/تر/ترین.
+ * Latin words, numbers and protected keywords are untouched.
+ */
+export function restoreZwnj(md: string, keep: string[] = []): string {
+  return transformUnprotected(md, part => part
+    .replace(/(^|[\s(«])(ن?می) (?=[\u0600-\u06FF])/g, '$1$2\u200c')
+    .replace(/([\u0600-\u06FF]) (ها|های|هایی|هایم|هایش|تر|ترین)(?=[\s،؛.!؟:)»]|$)/g, '$1\u200c$2'), keep);
+}
 
 function asVoice(v: string): Voice {
   return (VOICES as readonly string[]).includes(v) ? (v as Voice) : 'standard';
@@ -174,6 +190,7 @@ export async function runCategoryContent(
       ...caps(),
     }, ctx);
     const parsed = parseDraft(raw);
+    parsed.below = demoteH1(parsed.below);
     if (parsed.above && parsed.below) draft = parsed;
     else if (attempt === 2) throw new PipelineError('خروجی نگارش ساختار مورد انتظار را نداشت.', 502, 'draft_invalid');
   }
@@ -202,7 +219,7 @@ export async function runCategoryContent(
         (stage, message) => step(`humanize:${stage}`, message),
         ctx,
       );
-      finalBelow = out.text;
+      finalBelow = restoreZwnj(demoteH1(out.text), keywords);
       humanized.applied = true;
       if (out.quality.warnings.length) humanized.warning = out.quality.warnings.join(' ');
     } catch (error) {
