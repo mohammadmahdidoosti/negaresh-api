@@ -94,6 +94,21 @@ export async function runCategoryContent(
   req: ContentRequest,
   opts: { signal?: AbortSignal; onStep?: (s: StepEvent) => void } = {},
 ): Promise<ContentResult> {
+  try {
+    return await runCategoryContentInner(req, opts);
+  } catch (error) {
+    if (error instanceof HumanizerError) {
+      const status = error.status >= 400 && error.status < 500 ? error.status : 502;
+      throw new PipelineError(error.message, status, 'provider_error');
+    }
+    throw error;
+  }
+}
+
+async function runCategoryContentInner(
+  req: ContentRequest,
+  opts: { signal?: AbortSignal; onStep?: (s: StepEvent) => void },
+): Promise<ContentResult> {
   const started = Date.now();
   const step = (stage: string, message: string) => opts.onStep?.({ stage, message, at: new Date().toISOString() });
   const ctx = createExecutionContext(opts.signal);
@@ -148,7 +163,7 @@ export async function runCategoryContent(
   for (let attempt = 1; attempt <= 2 && !brief; attempt++) {
     const raw = await generateText(briefMessages(briefInput), {
       model: briefModel,
-      maxTokens: 4000,
+      maxTokens: 10000,
       temperature: 0.3,
       stage: 'content-brief',
       useFallback: false,
