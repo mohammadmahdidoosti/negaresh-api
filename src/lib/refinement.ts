@@ -1,4 +1,5 @@
 import { ANCHOR_REVIEW_WARNING } from './validator';
+import { countWords } from './text';
 import { outputTokenLimit } from './length';
 /** Straight-line, bounded generate → lint → score → optional critic → one refine. */
 import { validateCriticResult, validateEeatAnalysis } from './analysis';
@@ -359,6 +360,7 @@ export async function runWritingLoop(req: HumanizeRequest, llm: WritingLlm, loop
 	const refinedCandidate = text;
 	text = candidates.sort((a, b) => rank(a) - rank(b))[0] ?? req.text;
 	quality.chosen = !candidates.length ? 'source' : text === firstDraft ? 'first' : text === refinedCandidate ? 'refined' : 'source';
+	quality.firstDraftWords = countWords(firstDraft);
 	quality.firstDraftMissingAnchors = verifyInvariants(firstDraft, requiredAnchors, req.text).hardMissingAnchors?.slice(0, 20) ?? [];
 	// With guards on, a rewrite that still breaks one is worse than the source it was given.
 	if ((guards.noNewClaims || guards.holdLength) && candidates.length && guardPenalty(text) > 0) {

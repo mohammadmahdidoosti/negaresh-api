@@ -165,6 +165,7 @@ export interface QualityReport {
 	/** Which candidate was returned (diagnostics). */
 	chosen?: 'first' | 'refined' | 'source';
 	firstDraftMissingAnchors?: string[];
+	firstDraftWords?: number;
 	/** Writing-loop calls only; the separate E-E-A-T analysis call is excluded. */
 	llmCalls: number;
 	humanReviewRequired: boolean;

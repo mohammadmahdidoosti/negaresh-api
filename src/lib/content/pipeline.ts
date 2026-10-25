@@ -63,7 +63,7 @@ export interface ContentResult {
     warning?: string;
     sourceKept?: boolean;
     /** Humanizer internals, to see why a rewrite was kept or replaced. */
-    diag?: { chosen?: string; firstDraftMissingAnchors?: string[]; criticVerdict: string | null; refineRan: boolean; refinedIssueCodes: string[]; initialIssues: string[]; missingAnchors: string[]; llmCalls: number };
+    diag?: { chosen?: string; writerWords?: number; firstDraftMissingAnchors?: string[]; criticVerdict: string | null; refineRan: boolean; refinedIssueCodes: string[]; initialIssues: string[]; missingAnchors: string[]; llmCalls: number };
   };
   /** Optional targeted fix of QA problems in the draft, before humanizing. */
   repair?: { ran: boolean; accepted: boolean; problems: string[]; before: { level: QaLevel; words: number }; after?: { level: QaLevel; words: number } };
@@ -418,6 +418,7 @@ async function runCategoryContentInner(
       if (out.quality.sourceKept) humanized.sourceKept = true;
       humanized.diag = {
         chosen: out.quality.chosen,
+        writerWords: out.quality.firstDraftWords,
         firstDraftMissingAnchors: out.quality.firstDraftMissingAnchors,
         criticVerdict: out.quality.criticVerdict ?? null,
         refineRan: out.quality.refineRan,
