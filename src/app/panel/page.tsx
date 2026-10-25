@@ -20,9 +20,14 @@ export default function PanelPage() {
 							<Link href='/' className='flex min-w-0 items-center gap-3' aria-label='بازگشت به ویرایشگر'>
 								<Image src={logo} alt='' className='h-10 w-auto' priority />
 							</Link>
-							<Link href='/' className='outline-button'>
-								ویرایشگر وب
-							</Link>
+							<div className='flex flex-wrap items-center gap-2'>
+								<Link href='/panel/content' className='outline-button'>
+									تولید محتوا
+								</Link>
+								<Link href='/' className='outline-button'>
+									ویرایشگر وب
+								</Link>
+							</div>
 						</nav>
 					</div>
 				</div>

@@ -22,7 +22,12 @@ export interface LlmOptions {
 	maxTokens: number;
 	model: string;
 	allowEmpty?: boolean;
-	stage?: "draft" | "critic" | "refine" | "analysis";
+	stage?: "draft" | "critic" | "refine" | "analysis" | "content-brief" | "content-draft";
+	/** USD per 1M tokens; overrides LLM_MAX_INPUT_PRICE / LLM_MAX_OUTPUT_PRICE for this call. */
+	maxInputPrice?: number;
+	maxOutputPrice?: number;
+	/** false: retry the same model instead of switching to the configured fallback model. */
+	useFallback?: boolean;
 }
 
 export type WritingLlm = (

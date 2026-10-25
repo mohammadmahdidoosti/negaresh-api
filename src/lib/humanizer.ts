@@ -91,8 +91,8 @@ function openRouterHeaders(): Record<string, string> {
   return headers;
 }
 
-function resolveAttemptModel(config: LlmConfig, requested: string, attempt: number): string {
-  if (attempt > 1 && config.fallbackModel && config.fallbackModel !== requested) {
+function resolveAttemptModel(config: LlmConfig, requested: string, attempt: number, useFallback = true): string {
+  if (useFallback && attempt > 1 && config.fallbackModel && config.fallbackModel !== requested) {
     return config.fallbackModel;
   }
   return requested;
@@ -270,8 +270,8 @@ async function callLlmOnce(
   const openRouter = new URL(config.baseUrl).hostname === 'openrouter.ai';
   const capabilities = openRouter ? await modelCapabilities(model, context.signal) : null;
   const sampling = capabilities ? supportedSampling(capabilities, options.temperature, process.env.LLM_REASONING === 'default') : { temperature: options.temperature };
-  const maxInput = numericEnv('LLM_MAX_INPUT_PRICE', 1);
-  const maxOutput = numericEnv('LLM_MAX_OUTPUT_PRICE', 5);
+  const maxInput = options.maxInputPrice ?? numericEnv('LLM_MAX_INPUT_PRICE', 1);
+  const maxOutput = options.maxOutputPrice ?? numericEnv('LLM_MAX_OUTPUT_PRICE', 5);
   const inputBytes = Buffer.byteLength(JSON.stringify(messages), 'utf8') + 1024;
   if (capabilities) validateModelCapacity(capabilities, inputBytes, options.maxTokens);
   const reservation = (inputBytes * maxInput + options.maxTokens * maxOutput) / 1_000_000;
@@ -331,7 +331,7 @@ async function callLlm(
   let lastError: unknown;
   for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
     context.signal?.throwIfAborted();
-    const model = lastError instanceof ProviderHttpError && lastError.status === 429 && !lastError.upstreamThrottled ? options.model : resolveAttemptModel(config, options.model, attempt);
+    const model = lastError instanceof ProviderHttpError && lastError.status === 429 && !lastError.upstreamThrottled ? options.model : resolveAttemptModel(config, options.model, attempt, options.useFallback !== false);
     try {
       return await callLlmOnce(messages, config, options, model, context, attempt);
     } catch (error) {
@@ -339,7 +339,7 @@ async function callLlm(
       lastError = error;
       const willRetry = attempt < MAX_ATTEMPTS && isRetryableProviderError(error);
       const nextModel = error instanceof ProviderHttpError && error.status === 429 && !error.upstreamThrottled
-        ? options.model : resolveAttemptModel(config, options.model, attempt + 1);
+        ? options.model : resolveAttemptModel(config, options.model, attempt + 1, options.useFallback !== false);
       logLlmFailure(willRetry ? "retrying" : "giving up", {
         attempt,
         url: `${config.baseUrl.replace(/\/$/, "")}/chat/completions`,
@@ -352,6 +352,23 @@ async function callLlm(
     }
   }
   throw lastError;
+}
+
+/** Single LLM completion for other pipelines (e.g. category content), with the same retries, ledger and caps. */
+export async function generateText(
+  messages: Array<{ role: "system" | "user"; content: string }>,
+  options: LlmOptions,
+  context = createExecutionContext(),
+): Promise<string> {
+  const config = getLlmConfig();
+  if (!config) throw new HumanizerError("پیکربندی مدل ناقص است. API_KEY و LLM_BASE_URL را تنظیم کنید.", 503);
+  try {
+    return await callLlm(messages, config, options, context);
+  } catch (error) {
+    context.signal?.throwIfAborted();
+    if (error instanceof HumanizerError) throw error;
+    throw new HumanizerError(formatLlmError(error), error instanceof ProviderHttpError ? error.status : 502);
+  }
 }
 
 /** Shared writing loop: generate + optional critic + at most one refine. */

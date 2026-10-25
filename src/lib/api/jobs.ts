@@ -5,18 +5,22 @@
  */
 import { randomUUID } from 'node:crypto';
 import type { HumanizeRequest } from '@/lib/types';
-import { acquireSlot, PipelineError, runHumanize, type ApiHumanizeResult, type StepEvent } from './runner';
+import { acquireSlot, PipelineError, runHumanize, type StepEvent } from './runner';
+
+export type TaskRunner = (ctx: { signal: AbortSignal; onStep: (step: StepEvent) => void }) => Promise<unknown>;
 
 export type JobStatus = 'queued' | 'running' | 'succeeded' | 'failed' | 'canceled';
 
 interface Job {
   id: string;
+  kind: string;
+  meta?: Record<string, unknown>;
   status: JobStatus;
   createdAt: number;
   startedAt?: number;
   finishedAt?: number;
   steps: StepEvent[];
-  result?: ApiHumanizeResult;
+  result?: unknown;
   error?: { code: string; message: string; status: number };
   controller: AbortController;
 }
@@ -49,28 +53,34 @@ export function pendingCount(): number {
 
 export class QueueFullError extends Error {}
 
-export function createJob(payload: HumanizeRequest): Job {
+export function createTask(kind: string, run: TaskRunner, meta?: Record<string, unknown>): Job {
   sweep();
   if (pendingCount() >= maxPending()) throw new QueueFullError('صف پردازش پر است؛ کمی بعد دوباره تلاش کنید.');
   const job: Job = {
     id: randomUUID(),
+    kind,
+    meta,
     status: 'queued',
     createdAt: Date.now(),
     steps: [],
     controller: new AbortController(),
   };
   jobs.set(job.id, job);
-  void execute(job, payload);
+  void execute(job, run);
   return job;
 }
 
-async function execute(job: Job, payload: HumanizeRequest): Promise<void> {
+export function createJob(payload: HumanizeRequest): Job {
+  return createTask('humanize', ({ signal, onStep }) => runHumanize(payload, { signal, onStep }));
+}
+
+async function execute(job: Job, run: TaskRunner): Promise<void> {
   let release: (() => void) | undefined;
   try {
     release = await acquireSlot(job.controller.signal);
     job.status = 'running';
     job.startedAt = Date.now();
-    job.result = await runHumanize(payload, {
+    job.result = await run({
       signal: job.controller.signal,
       onStep: step => {
         job.steps.push(step);
@@ -87,11 +97,17 @@ async function execute(job: Job, payload: HumanizeRequest): Promise<void> {
         error instanceof PipelineError
           ? { code: error.code, message: error.message, status: error.status }
           : { code: 'internal_error', message: 'پردازش با خطای غیرمنتظره متوقف شد.', status: 500 };
+      if (!(error instanceof PipelineError)) console.error(`[jobs] ${job.kind} failed:`, error);
     }
   } finally {
     release?.();
     job.finishedAt = Date.now();
   }
+}
+
+export function listJobs(kind?: string) {
+  sweep();
+  return [...jobs.values()].filter(j => !kind || j.kind === kind).sort((a, b) => b.createdAt - a.createdAt);
 }
 
 export function getJob(id: string): Job | undefined {
@@ -112,13 +128,15 @@ export function serializeJob(job: Job, baseUrl?: string) {
   return {
     ok: true,
     id: job.id,
+    kind: job.kind,
+    ...(job.meta && { meta: job.meta }),
     status: job.status,
     createdAt: new Date(job.createdAt).toISOString(),
     ...(job.startedAt && { startedAt: new Date(job.startedAt).toISOString() }),
     ...(job.finishedAt && { finishedAt: new Date(job.finishedAt).toISOString() }),
     ...(job.steps.length > 0 && { currentStep: job.steps[job.steps.length - 1] }),
     steps: job.steps,
-    ...(job.result && { result: job.result }),
+    ...(job.result !== undefined ? { result: job.result } : {}),
     ...(job.error && { error: { code: job.error.code, message: job.error.message } }),
     ...(baseUrl && { url: `${baseUrl}/api/v1/jobs/${job.id}` }),
   };

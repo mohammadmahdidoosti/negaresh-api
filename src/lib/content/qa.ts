@@ -1,0 +1,108 @@
+/**
+ * Automatic checks on generated category content. Each check is cheap and explainable,
+ * so a reviewer sees exactly why a page is flagged.
+ */
+import { countWords } from '@/lib/text';
+import { norm, TIER_WORDS, type Tier } from './taxonomy';
+
+export type QaLevel = 'pass' | 'warn' | 'fail';
+export interface QaCheck {
+  id: string;
+  level: QaLevel;
+  label: string;
+  detail?: string;
+}
+
+const toLatin = (s: string) => s.replace(/[۰-۹]/g, d => String('۰۱۲۳۴۵۶۷۸۹'.indexOf(d))).replace(/[٠-٩]/g, d => String('٠١٢٣٤٥٦٧٨٩'.indexOf(d)));
+const UNIT_AFTER = /^\s*(آمپر|ولت|وات|کیلووات|کیلووار|اسب|اینچ|میلی|سانت|متر|لیتر|بار|psi|درجه|پل|فاز|کیلو|گرم|دور|هرتز|درصد|٪|%)/i;
+
+/** Numbers that look like specs (≥ 11, decimals, fractions, or followed by a unit). */
+function specNumbers(text: string): string[] {
+  const t = toLatin(text.replace(/\[\[[^\]]*\]\]/g, ''));
+  const out: string[] = [];
+  for (const m of t.matchAll(/\d+(?:[./]\d+)?/g)) {
+    const value = m[0];
+    const after = t.slice((m.index ?? 0) + value.length, (m.index ?? 0) + value.length + 12);
+    const n = parseFloat(value);
+    if (/[./]/.test(value) || n > 10 || UNIT_AFTER.test(after)) out.push(value);
+  }
+  return out;
+}
+
+export interface QaInput {
+  name: string;
+  tier: Tier;
+  above: string;
+  below: string;
+  metaTitle: string;
+  metaDescription: string;
+  /** Text whose numbers/brands are considered evidence (product names, path, profiles, facts). */
+  evidence: string;
+  allowedBrands: string[];
+  knownBrands: string[];
+  siteDataAvailable: boolean;
+}
+
+export function runQa(q: QaInput): { level: QaLevel; checks: QaCheck[]; words: number } {
+  const checks: QaCheck[] = [];
+  const add = (id: string, level: QaLevel, label: string, detail?: string) => checks.push({ id, level, label, detail });
+  const nName = norm(q.name);
+  const words = countWords(q.below);
+  const range = TIER_WORDS[q.tier];
+
+  // 1. keyword placement
+  add('kw-above', norm(q.above).includes(nName) ? 'pass' : 'fail', 'نام دقیق دسته در متن بالای لیست');
+  const first100 = q.below.split(/\s+/).slice(0, 110).join(' ');
+  add('kw-below', norm(first100).includes(nName) ? 'pass' : 'warn', 'نام دسته در ۱۰۰ کلمهٔ اول راهنما');
+  add('kw-title', norm(q.metaTitle).includes(nName) ? 'pass' : 'warn', 'نام دسته در عنوان سئو');
+
+  // 2. structure
+  const h1 = (q.below.match(/^#\s/gm) ?? []).length;
+  add('no-h1', h1 === 0 ? 'pass' : 'fail', 'بدون H1 در متن (قالب خودش H1 دارد)', h1 ? `${h1} مورد` : undefined);
+  const h2 = (q.below.match(/^##\s/gm) ?? []).length;
+  const minH2 = q.tier === 'hub' ? 7 : q.tier === 'standard' ? 5 : 3;
+  add('h2-count', h2 >= minH2 ? 'pass' : 'warn', `حداقل ${minH2} تیتر H2`, `${h2} تیتر`);
+  add('no-conclusion', /^##.*(نتیجه[‌ ]?گیری|جمع[‌ ]?بندی)/m.test(q.below) ? 'fail' : 'pass', 'تیتر «نتیجه‌گیری/جمع‌بندی» ندارد');
+  add('faq', /^##.*(سوال|سؤال|پرسش)/m.test(q.below) ? 'pass' : 'warn', 'بخش سؤالات متداول');
+
+  // 3. length
+  const lenOk = words >= range.min * 0.85 && words <= range.max * 1.2;
+  add('length', lenOk ? 'pass' : 'warn', `طول راهنما ${range.min} تا ${range.max} کلمه`, `${words} کلمه`);
+  const aboveWords = countWords(q.above);
+  add('above-length', aboveWords >= 45 && aboveWords <= 140 ? 'pass' : 'warn', 'متن بالای لیست ۶۰ تا ۱۱۰ کلمه', `${aboveWords} کلمه`);
+
+  // 4. accuracy
+  const all = `${q.above}\n${q.below}\n${q.metaTitle}\n${q.metaDescription}`;
+  const price = all.match(/(تومان|ریال|قیمت\s*[0-9۰-۹]|تخفیف\s*[0-9۰-۹]|ارسال رایگان)/);
+  add('no-price', price ? 'fail' : 'pass', 'بدون قیمت، تخفیف یا وعدهٔ ارسال', price?.[0]);
+  const evidenceNums = new Set(specNumbers(q.evidence));
+  const unknown = [...new Set(specNumbers(all))].filter(n => !evidenceNums.has(n));
+  add(
+    'numbers',
+    unknown.length === 0 ? 'pass' : unknown.length <= 2 ? 'warn' : 'fail',
+    'هر عدد فنی در دادهٔ واقعی یا پروفایل وجود دارد',
+    unknown.length ? `بدون پشتوانه: ${unknown.slice(0, 12).join('، ')}` : undefined,
+  );
+  const allowed = q.allowedBrands.map(norm);
+  const text = ` ${norm(all).replace(/[^\p{L}\p{N}]+/gu, ' ')} `;
+  const foreign = q.knownBrands.filter(b => {
+    const nb = norm(b).replace(/[^\p{L}\p{N}]+/gu, ' ').trim();
+    // whole-word match only, so «وال» does not match inside «سوالات»
+    return nb.length >= 2 && text.includes(` ${nb} `) && !allowed.some(a => a.includes(nb) || nb.includes(a));
+  });
+  add('brands', foreign.length ? 'fail' : 'pass', 'فقط برندهای موجود در همین دسته', foreign.length ? foreign.join('، ') : undefined);
+  const hype = all.match(/(تضمین|بهترین|بزرگ[‌ ]?ترین|صد درصد|۱۰۰٪|100%|بی[‌ ]?نظیر|اورجینال)/g);
+  add('hype', hype ? 'warn' : 'pass', 'بدون ادعای تبلیغاتی و تضمین', hype ? [...new Set(hype)].join('، ') : undefined);
+  const placeholders = (all.match(/\[\[[^\]]+\]\]/g) ?? []).length;
+  add('placeholders', placeholders === 0 ? 'pass' : placeholders <= 2 ? 'warn' : 'fail', 'جای خالی نیازمند منبع', placeholders ? `${placeholders} مورد` : undefined);
+  add('site-data', q.siteDataAvailable ? 'pass' : 'warn', 'دادهٔ زندهٔ محصولات از سایت');
+
+  // 5. meta
+  const t = q.metaTitle.length;
+  add('meta-title', t >= 25 && t <= 65 ? 'pass' : 'warn', 'طول عنوان سئو ۲۵ تا ۶۰ نویسه', `${t} نویسه`);
+  const d = q.metaDescription.length;
+  add('meta-desc', d >= 100 && d <= 165 ? 'pass' : 'warn', 'طول توضیح متا ۱۲۰ تا ۱۵۵ نویسه', `${d} نویسه`);
+
+  const level: QaLevel = checks.some(c => c.level === 'fail') ? 'fail' : checks.some(c => c.level === 'warn') ? 'warn' : 'pass';
+  return { level, checks, words };
+}
