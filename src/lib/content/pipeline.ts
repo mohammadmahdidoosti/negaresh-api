@@ -10,7 +10,7 @@ import { createExecutionContext, generateText, HumanizerError, rewriteText } fro
 import { countWords, transformUnprotected } from '@/lib/text';
 import { CONTENT_TYPES, VOICES, type ContentType, type Voice } from '@/lib/types';
 import { usageByStage, usageSummary } from '@/lib/usage-ledger';
-import { briefMessages, draftMessages, normalizeHeadings, parseBrief, parseDraft, PROMPT_VERSION, repairMessages, type Brief, type DraftSections } from './prompts';
+import { briefMessages, draftMessages, formatDraft, normalizeHeadings, parseBrief, parseDraft, PROMPT_VERSION, repairMessages, zwnjMessages, type Brief, type DraftSections } from './prompts';
 import { runQa, type QaCheck, type QaLevel } from './qa';
 import { fetchProductData } from './site';
 import { saveResult } from './store';
@@ -274,7 +274,11 @@ async function runCategoryContentInner(
   const cleanBrief = { ...brief!, facts, brands, droppedFacts: brief!.facts.length - facts.length + (brief!.brands.length - brands.length) };
 
   // ---------- 3. draft ----------
-  const scale = req.lengthScale && req.lengthScale >= 0.4 && req.lengthScale <= 1.5 ? req.lengthScale : lengthFactor(draftModel);
+  const freeHumanizer = req.humanize !== false && (req.humanizerGuards ?? (process.env.CONTENT_HUMANIZER_GUARDS === 'strict' ? 'strict' : 'light')) === 'light';
+  // a free humanizer lengthens the text ~1.5×, so the draft is asked shorter
+  const scale = req.lengthScale && req.lengthScale >= 0.3 && req.lengthScale <= 1.5
+    ? req.lengthScale
+    : lengthFactor(draftModel) * (freeHumanizer ? 0.7 : 1);
   step('draft', `نگارش با ${draftModel}`);
   const draftInput = {
     category: briefInput.category,
@@ -307,6 +311,21 @@ async function runCategoryContentInner(
   }
   draft ??= lastParsed;
   if (!draft) throw new PipelineError('خروجی نگارش ساختار مورد انتظار را نداشت.', 502, 'draft_invalid');
+  if (!zwnjHealthy(`${draft.above}\n${draft.below}`)) {
+    // Some categories come back without ZWNJ on every retry: let the cheap brief model put them back,
+    // and accept its answer only if nothing but spacing changed.
+    step('draft', 'گذاشتن نیم‌فاصله‌ها با مدل ارزان');
+    try {
+      const raw = await generateText(zwnjMessages(formatDraft(draft)), {
+        model: briefModel, maxTokens: MAX_TOKENS[effectiveTier] * 2, temperature: 0, stage: 'content-repair', useFallback: false, ...caps(),
+      }, ctx);
+      const fixed = parseDraft(raw);
+      const bare = (t: string) => t.replace(/[\u200c\s]+/g, '');
+      if (fixed.above && fixed.below && bare(formatDraft(fixed)) === bare(formatDraft(draft))) draft = fixed;
+    } catch (error) {
+      ctx.signal?.throwIfAborted();
+    }
+  }
 
   const evidence = [
     cat.name,
@@ -381,11 +400,10 @@ async function runCategoryContentInner(
           perspective: 'third_person',
           quality: 'precise',
           keywords,
-          // The humanizer's writer naturally expands ~1.4–1.6×. A target equal to the draft length forced a
-          // "compress" refine that rewrote the text back to the draft (87–95% sentences unchanged).
-          // 'light': aim 1.3× with ±25% (accepts 0.98–1.6×); 'strict': keep the draft length.
-          targetWords: Math.min(3000, Math.max(100, Math.round(draftWords * (guardMode === 'strict' ? 1 : 1.3)))),
-          wordTolerance: guardMode === 'strict' ? 0.15 : 0.25,
+          // The humanizer's writer expands 1.4–2×. Any word target made it run a "compress" refine that rewrote the
+          // text back to the draft (87–100% of sentences unchanged).
+          // 'light' behaves like the web tool: no word target, so no compress-refine that reverts the rewrite.
+          ...(guardMode === 'strict' ? { targetWords: Math.min(3000, Math.max(100, draftWords)), wordTolerance: 0.15 } : {}),
           articleGoal: cleanBrief.angle.slice(0, 2000),
           audience: (l1?.audience_desc ?? '').slice(0, 2000),
           // store page: theme owns the H1. 'strict' also forbids new claims and length changes.

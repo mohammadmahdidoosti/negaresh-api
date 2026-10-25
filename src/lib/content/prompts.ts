@@ -4,7 +4,7 @@
  */
 import type { Tier } from './taxonomy';
 
-export const PROMPT_VERSION = 'content-v1.5';
+export const PROMPT_VERSION = 'content-v1.6';
 
 export interface BriefInput {
   category: {
@@ -197,6 +197,14 @@ export function repairMessages(name: string, draft: DraftSections, problems: str
   return [
     { role: 'system' as const, content: system },
     { role: 'user' as const, content: user },
+  ];
+}
+
+/** Put back the ZWNJs a model dropped («میرود» → «می‌رود»). Nothing else may change. */
+export function zwnjMessages(markedDraft: string) {
+  return [
+    { role: 'system' as const, content: 'تو ویراستار املای فارسی هستی. در متن زیر نیم‌فاصله‌ها (U+200C) جا افتاده‌اند و کلمه‌ها به هم چسبیده‌اند، مثل «میرود»، «قطعکننده»، «لولهها». فقط نیم‌فاصله‌های استاندارد را بگذار («می‌رود»، «قطع‌کننده»، «لوله‌ها»). هیچ کلمه، حرف، علامت یا خطی را تغییر نده، اضافه یا حذف نکن. همان نشانه‌های ===ABOVE=== و بقیه را دقیقاً نگه دار و فقط متن اصلاح‌شده را برگردان.' },
+    { role: 'user' as const, content: markedDraft },
   ];
 }
 
