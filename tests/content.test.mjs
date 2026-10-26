@@ -126,3 +126,15 @@ test("humanized text keeps the draft's headings", async () => {
   assert.equal(keepDraftHeadings("## الف تازه\nمتن نو\n## جمع بندی\nمتن نو", draft), "## الف\nمتن نو\n## خرید از کاروان صنعت\nمتن نو");
   assert.equal(keepDraftHeadings("## الف\nمتن\n## ب\n## جمع‌بندی\nمتن", draft), "## الف\nمتن\n## ب\n## خرید از کاروان صنعت\nمتن");
 });
+
+test("closing keeps the humanized text unless the invitation to buy was lost; brands use store spelling", async () => {
+  const { keepDraftClosing, fixNameSpelling } = await jiti.import("../src/lib/content/pipeline.ts");
+  const draft = "## الف\nمتن\n## مزیت‌ها در کاروان صنعت\nمشاوره بگیرید و از فروشگاه آنلاین سفارش دهید.";
+  const lost = "## الف\nمتن نو\n## مزیت‌ها در کاروان صنعت\nانتخاب مدل باید بر اساس نیاز باشد.";
+  assert.equal(keepDraftClosing(lost, draft), "## الف\nمتن نو\n\n## مزیت‌ها در کاروان صنعت\nمشاوره بگیرید و از فروشگاه آنلاین سفارش دهید.");
+  const kept = "## الف\nمتن نو\n## مزیت‌ها\nبرای انتخاب دقیق با کارشناسان ما مشاوره کنید و آنلاین خرید کنید.";
+  assert.equal(keepDraftClosing(kept, draft), kept);
+  assert.equal(fixNameSpelling("برندهای لئو، آبکو، وینیکو و ایکار", ["ونیکو", "آبکو"]), "برندهای لئو، آبکو، ونیکو و ایکار");
+  assert.equal(fixNameSpelling("پمپ ونیکو", ["ونیکو"]), "پمپ ونیکو");
+  assert.equal(fixNameSpelling("کیفیت و دوام", ["کیفیتو", "آبکو"]), "کیفیت و دوام");
+});

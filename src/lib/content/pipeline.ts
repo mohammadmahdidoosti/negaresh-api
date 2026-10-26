@@ -149,6 +149,69 @@ export function keepDraftHeadings(final: string, draft: string, all = true): str
   return lastH2 ? final.replace(/^##[ \t].*(نتیجه[\u200c ]?گیری|جمع[\u200c ]?بندی).*$/gm, lastH2) : final;
 }
 
+const CTA_WORDS = ['مشاوره', 'سفارش', 'خرید', 'استعلام', 'تماس'];
+const lastH2At = (t: string) => {
+  const all = [...t.matchAll(/^##[ \t].*$/gm)];
+  return all.length ? all[all.length - 1].index! : -1;
+};
+
+/**
+ * The closing section is humanized like the rest, but it must still invite the reader to consult or buy.
+ * Only when the humanized closing lost that invitation is the draft's closing put back.
+ */
+export function keepDraftClosing(final: string, draft: string): string {
+  const f = lastH2At(final);
+  const d = lastH2At(draft);
+  if (f < 0 || d < 0) return final;
+  const hasCta = (t: string) => CTA_WORDS.some(w => t.includes(w));
+  if (hasCta(final.slice(f)) || !hasCta(draft.slice(d))) return final;
+  return `${final.slice(0, f).trimEnd()}\n\n${draft.slice(d).trim()}`;
+}
+
+function editDistance(a: string, b: string): number {
+  const dp = Array.from({ length: b.length + 1 }, (_, j) => j);
+  for (let i = 1; i <= a.length; i++) {
+    let prev = dp[0];
+    dp[0] = i;
+    for (let j = 1; j <= b.length; j++) {
+      const tmp = dp[j];
+      dp[j] = Math.min(dp[j] + 1, dp[j - 1] + 1, prev + (a[i - 1] === b[j - 1] ? 0 : 1));
+      prev = tmp;
+    }
+  }
+  return dp[b.length];
+}
+
+/**
+ * Brand names are spelled as the store spells them (product names / taxonomy), whoever wrote the text.
+ * A near variant («وینیکو» for «ونیکو») next to «برند» or another store brand is replaced by the store spelling.
+ * Names shorter than 4 letters are left alone.
+ */
+export function fixNameSpelling(text: string, names: string[]): string {
+  const flat = (t: string) => t.replace(/\u200c/g, ' ');
+  let out = text;
+  for (const name of [...new Set(names)].filter(n => flat(n).replace(/\s/g, '').length >= 4)) {
+    const n = flat(name).split(/\s+/).length;
+    const limit = name.length >= 8 ? 2 : 1;
+    const words = out.split(/(\s+)/);
+    for (let i = 0; i < words.length; i += 2) {
+      const span = words.slice(i, i + n * 2 - 1).join('');
+      const lead = span.match(/^[«(]+/)?.[0] ?? '';
+      const tail = span.match(/[»).,،؛:!؟]+$/)?.[0] ?? '';
+      const core = span.slice(lead.length, span.length - tail.length);
+      // same first letter and a brand context (the word «برند» or another store brand nearby):
+      // avoids turning ordinary words into brands
+      if (!core || core[0] !== name[0]) continue;
+      const around = words.slice(Math.max(0, i - 12), i + n * 2 + 12).join('');
+      if (!around.includes('برند') && !names.some(o => o !== name && around.includes(o))) continue;
+      const d = editDistance(flat(core), flat(name));
+      if (d > 0 && d <= limit) words.splice(i, n * 2 - 1, `${lead}${name}${tail}`);
+    }
+    out = words.join('');
+  }
+  return out;
+}
+
 function asVoice(v: string): Voice {
   return (VOICES as readonly string[]).includes(v) ? (v as Voice) : 'standard';
 }
@@ -399,7 +462,7 @@ async function runCategoryContentInner(
   if (req.humanize !== false) {
     step('humanize', 'هیومنایز راهنمای زیر لیست');
     const draftWords = countWords(draft!.below);
-    const keywords = [...new Set([cat.name, 'کاروان صنعت', ...brands.map(b => b.name)])].filter(k => k.length <= 120).slice(0, 30);
+    const keywords = [...new Set([cat.name, 'کاروان صنعت', ...brands.map(b => b.name), ...products.brands.map(b => b.brand)])].filter(k => k.length <= 120).slice(0, 30);
     try {
       const out = await rewriteText(
         {
@@ -423,6 +486,7 @@ async function runCategoryContentInner(
         humanizerWriter ? { writerModel: humanizerWriter } : {},
       );
       finalBelow = keepDraftHeadings(restoreZwnj(demoteH1(out.text), keywords), draft!.below, guardMode === 'strict');
+      finalBelow = keepDraftClosing(finalBelow, draft!.below);
       humanized.applied = true;
       if (out.quality.sourceKept) humanized.sourceKept = true;
       humanized.diag = {
@@ -445,7 +509,15 @@ async function runCategoryContentInner(
 
   // ---------- 5. QA ----------
   step('qa', 'کنترل کیفیت خودکار');
-  const content: DraftSections = { ...draft!, below: finalBelow };
+  // brands of this category as the store spells them (product names), applied to every section
+  const storeNames = [...products.brands.map(b => b.brand), ...allKnownBrands().filter(b => products.names.some(n => n.includes(b)))];
+  const spell = (t: string) => fixNameSpelling(t, storeNames);
+  const content: DraftSections = {
+    above: spell(draft!.above),
+    below: spell(finalBelow),
+    metaTitle: spell(draft!.metaTitle),
+    metaDescription: spell(draft!.metaDescription),
+  };
   const qa = runQa({ ...qaBase, above: content.above, below: content.below, metaTitle: content.metaTitle, metaDescription: content.metaDescription });
   const qaDraftFull = runQa({ ...qaBase, above: content.above, below: draft!.below, metaTitle: content.metaTitle, metaDescription: content.metaDescription });
 
