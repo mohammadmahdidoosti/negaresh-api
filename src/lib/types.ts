@@ -68,6 +68,11 @@ export interface HumanizeGuards {
 	noNewClaims?: boolean;
 	/** Prefer the candidate that stays inside the word target; fall back to the source if every rewrite breaks a guard. */
 	holdLength?: boolean;
+	/**
+	 * Repair missing numbers/data in the rewrite itself: the refiner gets the candidate plus the missing items and
+	 * their source sentences, not the whole original (with the original it tends to return the source text).
+	 */
+	surgicalRepair?: boolean;
 }
 
 export interface StyleMetrics {

@@ -12,6 +12,7 @@ import {
 	buildGenerationSystemPrompt,
 	buildRefineSystemPrompt,
 	buildRefineUserPrompt,
+	buildSurgicalRefineUserPrompt,
 } from './prompt';
 import { judgeLocally, shouldRunCritic } from './quality';
 import { isYmyl } from './skills/content-types';
@@ -60,6 +61,12 @@ export function newClaims(candidate: string, source: string): string[] {
 	const numbers = [...new Set(cand.match(/\d+(?:[.,/]\d+)?/g) ?? [])].filter(n => !srcNumbers.has(n));
 	const words = CLAIM_WORDS.filter(word => cand.includes(word) && !src.includes(word));
 	return [...numbers, ...words];
+}
+
+/** Each missing anchor with the source line/sentence it came from (for surgical repair). */
+function missingWithSource(items: string[], source: string): Array<{ item: string; sourceSentence: string }> {
+	const pieces = source.split(/\n+|(?<=[.!؟?])\s+/).map(p => p.trim()).filter(Boolean);
+	return items.slice(0, 12).map(item => ({ item, sourceSentence: (pieces.find(p => p.includes(item)) ?? '').slice(0, 400) }));
 }
 
 const DEFAULT_LOOP_MODELS = {
@@ -323,7 +330,9 @@ export async function runWritingLoop(req: HumanizeRequest, llm: WritingLlm, loop
 		try {
 			text = clean(
 			await invoke(buildRefineSystemPrompt(req) + protectionContract,
-				buildRefineUserPrompt(writingReq, maskCandidate(text), refineRequest, lintPayload)
+				(req.guards?.surgicalRepair
+					? buildSurgicalRefineUserPrompt(writingReq, maskCandidate(text), refineRequest, missingWithSource(validation.hardMissingAnchors ?? [], req.text), lintPayload)
+					: buildRefineUserPrompt(writingReq, maskCandidate(text), refineRequest, lintPayload))
 					+ `\n${JSON.stringify({ requiredAnchorRepairs: validation.hardMissingAnchors ?? [], optionalTerminologyReview: validation.softMissingAnchors ?? [] })}`
 					+ (protectionContext.length ? `\n${JSON.stringify({ protectedContent: protectionContext })}` : ''), {
 				temperature: 0.25,

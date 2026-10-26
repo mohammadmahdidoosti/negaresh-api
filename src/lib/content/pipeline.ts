@@ -230,7 +230,7 @@ export function repairProblems(qa: { checks: QaCheck[]; words: number }, tier: T
   if (by.has('no-conclusion')) out.push('تیتر «نتیجه‌گیری/جمع‌بندی» را با یک تیتر جذاب دیگر عوض کن.');
   if (by.has('no-price')) out.push(`قیمت، تخفیف و وعدهٔ ارسال را حذف کن (${by.get('no-price')!.detail ?? ''}).`);
   if (by.has('brands')) out.push(`این برندها در این دسته فروخته نمی‌شوند؛ نامشان را حذف کن: ${by.get('brands')!.detail}`);
-  if (by.has('numbers')) out.push(`این عددها در دادهٔ محصولات نیستند؛ حذفشان کن یا جمله را بدون عدد بنویس: ${detailList(by.get('numbers'))}`);
+  if (by.has('numbers') && detailList(by.get('numbers')).split('،').filter(x => x.trim()).length >= 3) out.push(`این عددها در دادهٔ محصولات نیستند؛ حذفشان کن یا جمله را بدون عدد بنویس: ${detailList(by.get('numbers'))}`);
   if (by.has('hype')) out.push(`این کلمات تبلیغاتی را حذف یا با جملهٔ واقع‌بینانه جایگزین کن: ${by.get('hype')!.detail}`);
   if (by.has('placeholders')) out.push('جاهای خالی [[...]] را حذف کن و جمله را بدون آن کامل کن.');
   if (by.has('h2-count')) out.push(`تیتر هر بخش اصلی باید H2 (## ) باشد و فقط سؤال‌های متداول H3 (### ) باشند؛ حداقل ${tier === 'hub' ? 7 : tier === 'standard' ? 5 : 3} تیتر ##.`);
@@ -479,7 +479,7 @@ async function runCategoryContentInner(
           articleGoal: cleanBrief.angle.slice(0, 2000),
           audience: (l1?.audience_desc ?? '').slice(0, 2000),
           // store page: theme owns the H1. 'strict' also forbids new claims and length changes.
-          guards: guardMode === 'strict' ? { embedded: true, noNewClaims: true, holdLength: true } : { embedded: true },
+          guards: guardMode === 'strict' ? { embedded: true, noNewClaims: true, holdLength: true, surgicalRepair: true } : { embedded: true, surgicalRepair: true },
         },
         (stage, message) => step(`humanize:${stage}`, message),
         ctx,

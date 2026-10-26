@@ -76,11 +76,14 @@ export function runQa(q: QaInput): { level: QaLevel; checks: QaCheck[]; words: n
   // whole words only: «ریال» must not match inside «متریال»
   const price = all.match(/(?<![\p{L}])(تومان|ریال|قیمت\s*[0-9۰-۹]|تخفیف\s*[0-9۰-۹]|ارسال رایگان)(?![\p{L}])/u);
   add('no-price', price ? 'fail' : 'pass', 'بدون قیمت، تخفیف یا وعدهٔ ارسال', price?.[0]);
-  const evidenceNums = new Set(specNumbers(q.evidence));
+  // well-known standard values (mains voltage, frequency, common DC voltages) need no product evidence
+  const STANDARD = new Set(['12', '24', '48', '50', '60', '110', '220', '230', '380', '400']);
+  const evidenceNums = new Set([...specNumbers(q.evidence), ...STANDARD]);
   const unknown = [...new Set(specNumbers(all))].filter(n => !evidenceNums.has(n));
+  // informational only: a number missing from product names is usually a correct general fact
   add(
     'numbers',
-    unknown.length === 0 ? 'pass' : unknown.length <= 2 ? 'warn' : 'fail',
+    unknown.length === 0 ? 'pass' : 'warn',
     'هر عدد فنی در دادهٔ واقعی یا پروفایل وجود دارد',
     unknown.length ? `بدون پشتوانه: ${unknown.slice(0, 12).join('، ')}` : undefined,
   );

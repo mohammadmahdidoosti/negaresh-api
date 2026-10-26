@@ -67,6 +67,31 @@ export function buildContext(req: HumanizeRequest): string {
   });
 }
 
+/** Context without the original text (surgical repair: the refiner must edit the candidate, not copy the source). */
+function buildContextWithoutOriginal(req: HumanizeRequest): string {
+  const ctx = JSON.parse(buildContext(req)) as Record<string, unknown>;
+  delete ctx.original;
+  return JSON.stringify(ctx);
+}
+
+export function buildSurgicalRefineUserPrompt(
+  req: HumanizeRequest,
+  candidate: string,
+  critic: CriticResult,
+  missing: Array<{ item: string; sourceSentence: string }>,
+  lintViolations: Array<Record<string, unknown>> = [],
+): string {
+  return `${buildContextWithoutOriginal(req)}\n${JSON.stringify({
+    candidate,
+    issues: critic.issues.slice(0, 4),
+    keep: critic.keep,
+    ...(missing.length ? { missingFacts: missing } : {}),
+    ...(lintViolations.length ? { lintViolations: lintViolations.slice(0, 8) } : {}),
+    priorityEdit: 'Edit the candidate in place. Keep its wording, sentence order and style. For each missingFacts item, put the exact item back into the candidate sentence that covers the same point (use sourceSentence only to see where it belongs and what it means). Do not copy other sentences from sourceSentence. Fix the listed issues the same way: locally. Return the complete candidate.',
+    editorialConstraints: { preserveAnchors: true, naturalSentenceRepair: true },
+  })}`;
+}
+
 export function buildCriticSystemPrompt(req: HumanizeRequest, combined = false): string {
   return [
     coreSkill,

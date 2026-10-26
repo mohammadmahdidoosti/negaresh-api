@@ -102,12 +102,12 @@ test("repair asks to shorten, drop hype/unsupported numbers, never to lengthen",
   const { repairProblems } = await jiti.import("../src/lib/content/pipeline.ts");
   const checks = [
     { id: "hype", level: "warn", label: "", detail: "تضمین" },
-    { id: "numbers", level: "fail", label: "", detail: "بدون پشتوانه: 24، 220" },
+    { id: "numbers", level: "warn", label: "", detail: "بدون پشتوانه: 24، 45، 72" },
     { id: "meta-title", level: "warn", label: "", detail: "67 نویسه" },
   ];
   const long = repairProblems({ checks, words: 1170 }, "standard", "PU");
   assert.equal(long.length, 4);
-  assert.ok(long.some(p => p.includes("24، 220")));
+  assert.ok(long.some(p => p.includes("24، 45، 72")));
   assert.ok(long.some(p => p.includes("1170 کلمه")));
   const short = repairProblems({ checks: [], words: 200 }, "standard", "PU");
   assert.deepEqual(short, []);

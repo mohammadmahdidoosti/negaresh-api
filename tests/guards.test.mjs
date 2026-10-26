@@ -46,3 +46,20 @@ test("with guards, a rewrite that adds a guarantee is not returned", async () =>
   assert.equal(newClaims(out.text, section).length, 0);
   assert.equal(out.quality.sourceKept, true);
 });
+
+test("surgical repair: the refiner gets the missing item and its sentence, not the whole original", async () => {
+  const src = "## هد\nمدل ۲ اسب با هد ۷۲ متر برای ساختمان بلندتر مناسب است و نصب ساده‌ای دارد.\n\n" + "پمپ جتی برای منبع زمینی مناسب است و آب را با فشار می‌رساند. ".repeat(12);
+  const req = { ...base, text: src, guards: { embedded: true, surgicalRepair: true } };
+  const rewrite = src.replace("۷۲ متر", "هد بالا");
+  let refineUser = "";
+  const llm = async (messages, o) => {
+    if (o.stage === "critic") return JSON.stringify({ verdict: "pass", issues: [], keep: [] });
+    if (o.stage === "refine") { refineUser = messages[1].content; return rewrite.replace("هد بالا", "هد ۷۲ متر"); }
+    return rewrite;
+  };
+  const out = await runWritingLoop(req, llm);
+  assert.ok(refineUser.includes("missingFacts"));
+  assert.ok(refineUser.includes("۷۲"));
+  assert.ok(!refineUser.includes('"original"'));
+  assert.ok(out.text.includes("۷۲ متر"));
+});
