@@ -18,7 +18,8 @@ const g = globalThis as typeof globalThis & {
 };
 const results: Map<string, ContentResult[]> = (g.__negareshContent ??= new Map());
 
-function kv(): Promise<Client | null> {
+/** Shared Redis client (null when REDIS_URL / KV_URL is not set or unreachable). */
+export function kv(): Promise<Client | null> {
   const url = process.env.REDIS_URL?.trim() || process.env.KV_URL?.trim();
   if (!url) return Promise.resolve(null);
   g.__negareshKv ??= (async () => {

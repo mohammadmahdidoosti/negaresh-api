@@ -1,6 +1,7 @@
 'use client';
 
 import type { ContentResult } from '@/lib/content/pipeline';
+import CampaignsCard from './CampaignsCard';
 import { markdownToSafeHtml } from '@/lib/markdown-renderer';
 import { Check, Copy, Download, ExternalLink, Eye, LoaderCircle, Play, Plus, RefreshCw, Search, Square, Upload, X } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
@@ -820,6 +821,9 @@ export default function ContentPanel() {
 					</div>
 				)}
 			</Card>
+
+			{/* ---------------- bulk generation ---------------- */}
+			{apiKey && <CampaignsCard apiKey={apiKey} />}
 
 			{/* ---------------- 5. result viewer ---------------- */}
 			{result && (
