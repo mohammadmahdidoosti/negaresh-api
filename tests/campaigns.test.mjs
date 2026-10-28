@@ -73,18 +73,37 @@ test("pause stops new work; resume continues", { skip: !redis }, async () => {
   assert.equal((await c.getCampaign(created.id)).done, 8);
 });
 
-test("after a restart, categories that were in progress go back to the queue", { skip: !redis }, async () => {
+test("a category without heartbeat goes back to the queue; a live one from another container does not", { skip: !redis }, async () => {
   const seen = [];
   c.setCampaignRunnerForTests(async req => { seen.push(req.category); return { resultId: "x", qa: { level: "pass" }, cost: { usd: 0 } }; });
   const created = await c.createCampaign({ label: "t4", limit: 3, onlyMissing: false });
   await c.setCampaignStatus(created.id, "pause");
   assert.ok(await until(async () => (await c.getCampaign(created.id)).inflight.length === 0));
-  // simulate a category that a killed process had started
   const kv = await globalThis.__negareshKv;
-  await kv.sAdd(`content:campaign:${created.id}:inflight`, "interrupted-id");
-  globalThis.__negareshCampaignWorker.recovered = false;
+  const key = `content:campaign:${created.id}:inflight`;
+  await kv.hSet(key, "abandoned-id", JSON.stringify({ instance: "dead-container", at: Date.now() - 10 * 60_000 }));
+  await kv.hSet(key, "live-id", JSON.stringify({ instance: "other-container", at: Date.now() }));
+  seen.length = 0;
+  await c.setCampaignStatus(created.id, "resume");
+  assert.ok(await until(async () => seen.includes("abandoned-id")));
+  await wait(200);
+  assert.ok(!seen.includes("live-id"), "live work of another container is left alone");
+  assert.deepEqual((await c.getCampaign(created.id)).inflight, ["live-id"]);
+  await kv.hDel(key, "live-id");
+});
+
+test("inflight kept as a plain set (first version) is migrated back to the queue", { skip: !redis }, async () => {
+  const seen = [];
+  c.setCampaignRunnerForTests(async req => { seen.push(req.category); return { resultId: "x", qa: { level: "pass" }, cost: { usd: 0 } }; });
+  const created = await c.createCampaign({ label: "t5", limit: 1, onlyMissing: false });
+  await c.setCampaignStatus(created.id, "pause");
+  assert.ok(await until(async () => (await c.getCampaign(created.id)).inflight.length === 0));
+  const kv = await globalThis.__negareshKv;
+  const key = `content:campaign:${created.id}:inflight`;
+  await kv.del(key);
+  await kv.sAdd(key, "old-format-id");
   seen.length = 0;
   await c.setCampaignStatus(created.id, "resume");
   assert.ok(await until(async () => (await c.getCampaign(created.id)).status === "done"));
-  assert.ok(seen.includes("interrupted-id"));
+  assert.ok(seen.includes("old-format-id"));
 });
