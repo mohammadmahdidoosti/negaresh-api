@@ -23,7 +23,7 @@ Authorization: Bearer <NEGARESH_API_KEY>
 درخواست می‌دهید و منتظر می‌مانید تا متن نهایی برگردد. **timeout کلاینت را حداقل ۱۰ دقیقه بگذارید.**
 
 ```bash
-curl -X POST https://YOUR-DOMAIN/api/v1/humanize \
+curl -X POST https://negaresh.caravansanat.com/api/v1/humanize \
   -H "Authorization: Bearer $NEGARESH_API_KEY" \
   -H "Content-Type: application/json" \
   --max-time 600 \
@@ -58,20 +58,20 @@ curl -X POST https://YOUR-DOMAIN/api/v1/humanize \
 **گام ۱: ثبت کار** (پاسخ فوری `202`)
 
 ```bash
-curl -X POST https://YOUR-DOMAIN/api/v1/jobs \
+curl -X POST https://negaresh.caravansanat.com/api/v1/jobs \
   -H "Authorization: Bearer $NEGARESH_API_KEY" \
   -H "Content-Type: application/json" \
   -d '{"text": "متن ورودی ..."}'
 ```
 
 ```json
-{ "ok": true, "id": "dc7c36db-...", "status": "queued", "url": "https://YOUR-DOMAIN/api/v1/jobs/dc7c36db-..." }
+{ "ok": true, "id": "dc7c36db-...", "status": "queued", "url": "https://negaresh.caravansanat.com/api/v1/jobs/dc7c36db-..." }
 ```
 
 **گام ۲: پیگیری** (هر ۱۰ ثانیه)
 
 ```bash
-curl https://YOUR-DOMAIN/api/v1/jobs/<id> -H "Authorization: Bearer $NEGARESH_API_KEY"
+curl https://negaresh.caravansanat.com/api/v1/jobs/<id> -H "Authorization: Bearer $NEGARESH_API_KEY"
 ```
 
 | `status` | معنی |
@@ -132,7 +132,7 @@ curl https://YOUR-DOMAIN/api/v1/jobs/<id> -H "Authorization: Bearer $NEGARESH_AP
 ```python
 import os, time, requests
 
-BASE = "https://YOUR-DOMAIN"
+BASE = "https://negaresh.caravansanat.com"
 HEADERS = {"Authorization": f"Bearer {os.environ['NEGARESH_API_KEY']}"}
 
 def humanize(text: str, **options) -> str:
@@ -153,7 +153,7 @@ print(humanize("متن ورودی ...", voice="casual", quality="precise"))
 ## نمونهٔ JavaScript (Node 18+)
 
 ```js
-const res = await fetch('https://YOUR-DOMAIN/api/v1/humanize', {
+const res = await fetch('https://negaresh.caravansanat.com/api/v1/humanize', {
   method: 'POST',
   headers: { Authorization: `Bearer ${process.env.NEGARESH_API_KEY}`, 'Content-Type': 'application/json' },
   body: JSON.stringify({ text: 'متن ورودی ...', voice: 'standard' }),

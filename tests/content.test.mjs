@@ -138,3 +138,15 @@ test("closing keeps the humanized text unless the invitation to buy was lost; br
   assert.equal(fixNameSpelling("پمپ ونیکو", ["ونیکو"]), "پمپ ونیکو");
   assert.equal(fixNameSpelling("کیفیت و دوام", ["کیفیتو", "آبکو"]), "کیفیت و دوام");
 });
+
+test("store URL ignores SITE_URL (Negaresh's own address); STORE_URL overrides", async () => {
+  const { storeBaseUrl } = await jiti.import("../src/lib/content/site.ts");
+  const before = { s: process.env.SITE_URL, t: process.env.STORE_URL };
+  process.env.SITE_URL = "https://negaresh.caravansanat.com";
+  delete process.env.STORE_URL;
+  assert.equal(storeBaseUrl(), "https://caravansanat.com");
+  process.env.STORE_URL = "https://staging.example.com/";
+  assert.equal(storeBaseUrl(), "https://staging.example.com");
+  if (before.s === undefined) delete process.env.SITE_URL; else process.env.SITE_URL = before.s;
+  if (before.t === undefined) delete process.env.STORE_URL; else process.env.STORE_URL = before.t;
+});

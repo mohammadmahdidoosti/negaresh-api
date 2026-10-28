@@ -344,7 +344,7 @@ export default function ApiPanel() {
 	const details = result?.details as { quality?: { llmCalls?: number; criticVerdict?: string; refineRan?: boolean } } | undefined;
 
 	/* ----- snippets ----- */
-	const base = origin || 'https://YOUR-SERVICE.onrender.com';
+	const base = origin || 'https://negaresh.caravansanat.com';
 	const keyForSnippet = showKey && apiKey ? apiKey : 'YOUR_API_KEY';
 	const jsonBody = JSON.stringify(body, null, 2);
 	const shellBody = jsonBody.replace(/'/g, "'\\''");

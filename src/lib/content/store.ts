@@ -1,7 +1,7 @@
 /**
  * Store of generated category content.
  * - Always keeps an in-memory cache (latest 10 results per category).
- * - When REDIS_URL / KV_URL is set (Render Key Value), every result is also written there, so results
+ * - When REDIS_URL / KV_URL is set (Redis 7 with persistence on the VPS), every result is also written there, so results
  *   survive restarts and sleep of the free web service.
  */
 import { createClient } from 'redis';

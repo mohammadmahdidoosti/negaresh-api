@@ -6,8 +6,14 @@
  */
 import { norm } from './taxonomy';
 
-const SITE = (process.env.SITE_URL || 'https://caravansanat.com').replace(/\/$/, '');
-const UA = 'Mozilla/5.0 (compatible; NegareshContent/1.0; +https://negaresh-api.onrender.com)';
+/**
+ * The WooCommerce store we read products from. Deliberately NOT `SITE_URL`: on the VPS that variable holds
+ * Negaresh's own address (https://negaresh.caravansanat.com), and reading products from there finds nothing.
+ */
+export function storeBaseUrl(): string {
+  return (process.env.STORE_URL?.trim() || 'https://caravansanat.com').replace(/\/$/, '');
+}
+const UA = 'Mozilla/5.0 (compatible; NegareshContent/1.0; +https://negaresh.caravansanat.com)';
 const TTL_MS = 30 * 60_000;
 
 export interface LiveCategory {
@@ -36,7 +42,7 @@ async function getJson<T>(path: string, signal?: AbortSignal): Promise<{ data: T
     signal?.throwIfAborted();
     const timeout = AbortSignal.timeout(60_000);
     try {
-      const res = await fetch(`${SITE}${path}`, {
+      const res = await fetch(`${storeBaseUrl()}${path}`, {
         headers: { 'User-Agent': UA, Accept: 'application/json' },
         signal: signal ? AbortSignal.any([signal, timeout]) : timeout,
       });
