@@ -46,6 +46,7 @@ export async function POST(request: Request) {
         ...(str(body.briefModel) ? { briefModel: str(body.briefModel) } : {}),
         ...(model(body.humanizerWriter) ? { humanizerWriter: model(body.humanizerWriter) } : {}),
         humanize: body.humanize !== false,
+        ...(typeof body.naturalDraft === 'boolean' ? { naturalDraft: body.naturalDraft } : {}),
         ...(typeof body.humanizerQuality === 'string' && (QUALITY_LEVELS as readonly string[]).includes(body.humanizerQuality)
           ? { humanizerQuality: body.humanizerQuality as QualityLevel }
           : {}),

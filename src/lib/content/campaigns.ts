@@ -34,6 +34,7 @@ export interface CampaignOptions {
   humanizerWriter?: string;
   humanize?: boolean;
   humanizerQuality?: QualityLevel;
+  naturalDraft?: boolean;
 }
 
 export interface Campaign {
@@ -351,6 +352,7 @@ async function runOne(c: Campaign, categoryId: string): Promise<void> {
       ...(c.options.briefModel ? { briefModel: c.options.briefModel } : {}),
       ...(c.options.humanizerWriter ? { humanizerWriter: c.options.humanizerWriter } : {}),
       ...(c.options.humanizerQuality ? { humanizerQuality: c.options.humanizerQuality } : {}),
+      ...(typeof c.options.naturalDraft === 'boolean' ? { naturalDraft: c.options.naturalDraft } : {}),
       humanize: c.options.humanize !== false,
     };
     const result = await runner(req);

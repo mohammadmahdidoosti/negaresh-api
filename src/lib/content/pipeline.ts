@@ -7,6 +7,7 @@
 import { randomUUID } from 'node:crypto';
 import { PipelineError, type StepEvent } from '@/lib/api/runner';
 import { createExecutionContext, generateText, HumanizerError, rewriteText } from '@/lib/humanizer';
+import { lintText } from '@/lib/linter';
 import { countWords, transformUnprotected } from '@/lib/text';
 import { CONTENT_TYPES, QUALITY_LEVELS, VOICES, type ContentType, type QualityLevel, type Voice } from '@/lib/types';
 import { usageByStage, usageSummary } from '@/lib/usage-ledger';
@@ -49,6 +50,8 @@ export interface ContentRequest {
   reuseDraftFrom?: string;
   /** Humanizer strictness (default CONTENT_HUMANIZER_QUALITY or 'precise'): 'readable' rewrites more freely. */
   humanizerQuality?: QualityLevel;
+  /** Natural-writing rules in the draft prompt (default CONTENT_NATURAL_DRAFT=on|off, off). */
+  naturalDraft?: boolean;
 }
 
 export interface ContentResult {
@@ -57,7 +60,7 @@ export interface ContentResult {
   label?: string;
   promptVersion: string;
   category: { id: string; name: string; path: string; level: number; tier: Tier; productCount: number; url: string | null; flags: string };
-  models: { brief: string; draft: string; humanize: boolean; lengthScale?: number; humanizerWriter?: string; humanizerGuards?: string; humanizerQuality?: string };
+  models: { brief: string; draft: string; humanize: boolean; lengthScale?: number; humanizerWriter?: string; humanizerGuards?: string; humanizerQuality?: string; naturalDraft?: boolean };
   data: { productSample: number; brands: Array<{ brand: string; count: number }>; specs: Record<string, string[]>; siteError?: string };
   brief: Brief & { droppedFacts: number };
   content: DraftSections;
@@ -351,7 +354,8 @@ async function runCategoryContentInner(
   const scale = req.lengthScale && req.lengthScale >= 0.3 && req.lengthScale <= 1.5
     ? req.lengthScale
     : lengthFactor(draftModel) * (freeHumanizer ? 0.7 : 1);
-  if (!reused) step('draft', `نگارش با ${draftModel}`);
+  const naturalDraft = req.naturalDraft ?? process.env.CONTENT_NATURAL_DRAFT === 'on';
+  if (!reused) step('draft', `نگارش با ${draftModel}${naturalDraft ? ' (نگارش طبیعی)' : ''}`);
   const draftInput = {
     category: briefInput.category,
     industry: [l1Cat.name, l2Cat && !isOwnL2 ? l2Cat.name : null].filter(Boolean).join(' / '),
@@ -361,6 +365,7 @@ async function runCategoryContentInner(
     sectionRules: l1?.section_rules ?? { include: [], exclude: [] },
     profileCautions: [...(l1?.cautions ?? []), ...(l2?.cautions ?? [])],
     words: { min: Math.round(words.min * scale), max: Math.round(words.max * scale) },
+    natural: naturalDraft,
   };
   let draft: DraftSections | undefined = reused
     ? { above: reused.content.above, below: reused.draftBelow, metaTitle: reused.content.metaTitle, metaDescription: reused.content.metaDescription }
@@ -424,6 +429,17 @@ async function runCategoryContentInner(
   let repair: ContentResult['repair'];
   const draftQa = runQa({ ...qaBase, above: draft!.above, below: draft!.below, metaTitle: draft!.metaTitle, metaDescription: draft!.metaDescription });
   const problems = process.env.CONTENT_REPAIR === 'off' || reused ? [] : repairProblems(draftQa, effectiveTier, cat.name);
+  let lintHitsBefore = 0;
+  const lintHits = (md: string) =>
+    new Set(lintText(md, { voice: 'standard', contentType: 'commercial', quality: 'readable' }).violations
+      .filter(v => v.category === 'filler' || v.category === 'bureaucratic_verb').map(v => v.match.trim())).size;
+  if (naturalDraft && !reused && process.env.CONTENT_REPAIR !== 'off') {
+    // the humanizer's linter, on the draft: filler and bureaucratic verbs are fixed in the same repair call
+    const lint = lintText(draft!.below, { voice: 'standard', contentType: 'commercial', quality: 'readable' });
+    const hits = [...new Set(lint.violations.filter(v => v.category === 'filler' || v.category === 'bureaucratic_verb').map(v => v.match.trim()))];
+    lintHitsBefore = hits.length;
+    if (hits.length >= 2) problems.push(`این عبارت‌های کلیشه‌ای/اداری را با بیان ساده و مستقیم عوض کن: ${hits.slice(0, 12).join('، ')}`);
+  }
   if (problems.length) {
     step('repair', `اصلاح ${problems.length} ایراد پیش‌نویس با ${draftModel}`);
     repair = { ran: true, accepted: false, problems, before: { level: draftQa.level, words: draftQa.words } };
@@ -445,7 +461,8 @@ async function runCategoryContentInner(
         repair.after = { level: fixedQa.level, words: fixedQa.words };
         // must not lose much of the guide (a model that "fixes" by deleting sections is rejected)
         const keepsZwnj = zwnjHealthy(`${fixed.above}\n${fixed.below}`) || !zwnjHealthy(`${draft!.above}\n${draft!.below}`);
-        if (keepsZwnj && qaScore(fixedQa) < qaScore(draftQa) && fixedQa.words >= TIER_WORDS[effectiveTier].min * 0.85) {
+        const better = qaScore(fixedQa) < qaScore(draftQa) || (qaScore(fixedQa) === qaScore(draftQa) && lintHitsBefore >= 2 && lintHits(fixed.below) < lintHitsBefore);
+        if (keepsZwnj && better && fixedQa.words >= TIER_WORDS[effectiveTier].min * 0.85) {
           draft = fixed;
           repair.accepted = true;
         }
@@ -532,7 +549,7 @@ async function runCategoryContentInner(
     ...(req.label ? { label: req.label } : {}),
     promptVersion: PROMPT_VERSION,
     category: { id: cat.id, name: cat.name, path, level: cat.level, tier: effectiveTier, productCount, url: products.live?.link ?? null, flags: cat.flags },
-    models: { brief: briefModel, draft: draftModel, humanize: humanized.applied, lengthScale: scale, ...(humanizerWriter ? { humanizerWriter } : {}), ...(humanized.applied ? { humanizerGuards: guardMode, humanizerQuality } : {}) },
+    models: { brief: briefModel, draft: draftModel, humanize: humanized.applied, lengthScale: scale, naturalDraft, ...(humanizerWriter ? { humanizerWriter } : {}), ...(humanized.applied ? { humanizerGuards: guardMode, humanizerQuality } : {}) },
     data: { productSample: products.names.length, brands: products.brands, specs: products.specs, ...(products.error ? { siteError: products.error } : {}) },
     brief: cleanBrief,
     content,

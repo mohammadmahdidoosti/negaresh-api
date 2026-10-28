@@ -150,3 +150,11 @@ test("store URL ignores SITE_URL (Negaresh's own address); STORE_URL overrides",
   if (before.s === undefined) delete process.env.SITE_URL; else process.env.SITE_URL = before.s;
   if (before.t === undefined) delete process.env.STORE_URL; else process.env.STORE_URL = before.t;
 });
+
+test("natural-writing rules go into the draft prompt only when asked", async () => {
+  const { draftMessages, NATURAL_WRITING_RULES } = await jiti.import("../src/lib/content/prompts.ts");
+  const brief = { angle: "", audience: "mixed", search_intent: "", term_explanation: "", lsi: [], facts: [], brands: [], headings: [], table: null, check_before_order: [], common_mistakes: [], glossary: [], faq: [], cautions: [] };
+  const input = { category: { name: "سه راهی", path: "x", level: 2, synonyms: "", productCount: 10, tier: "standard" }, industry: "", brief, tone: "", audienceDesc: "", sectionRules: { include: [], exclude: [] }, profileCautions: [], words: { min: 300, max: 500 } };
+  assert.ok(!draftMessages(input)[0].content.includes("نگارش طبیعی"));
+  assert.ok(draftMessages({ ...input, natural: true })[0].content.includes(NATURAL_WRITING_RULES));
+});

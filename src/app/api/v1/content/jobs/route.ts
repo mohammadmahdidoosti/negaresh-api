@@ -44,6 +44,7 @@ export async function POST(request: Request) {
     ...(typeof body.humanizerWriter === 'string' && DRAFT_MODELS().includes(body.humanizerWriter) ? { humanizerWriter: body.humanizerWriter } : {}),
     ...(typeof body.reuseDraftFrom === 'string' && body.reuseDraftFrom ? { reuseDraftFrom: body.reuseDraftFrom.slice(0, 80) } : {}),
     ...(typeof body.humanizerQuality === 'string' && (QUALITY_LEVELS as readonly string[]).includes(body.humanizerQuality) ? { humanizerQuality: body.humanizerQuality as QualityLevel } : {}),
+    ...(typeof body.naturalDraft === 'boolean' ? { naturalDraft: body.naturalDraft } : {}),
     ...(body.humanizerGuards === 'light' || body.humanizerGuards === 'strict' ? { humanizerGuards: body.humanizerGuards } : {}),
     ...(typeof body.lengthScale === 'number' && body.lengthScale >= 0.3 && body.lengthScale <= 1.5 ? { lengthScale: body.lengthScale } : {}),
   };
