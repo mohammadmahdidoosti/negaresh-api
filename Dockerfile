@@ -6,6 +6,10 @@ RUN npm ci --no-audit --no-fund
 COPY . .
 ENV NEXT_TELEMETRY_DISABLED=1
 RUN npm run build
+# Build stamp for /api/v1/health: shows which build is live after a deploy.
+# Coolify passes SOURCE_COMMIT as a build argument when available.
+ARG SOURCE_COMMIT=unknown
+RUN date -u +%Y-%m-%dT%H:%M:%SZ > .build-time && echo "${SOURCE_COMMIT}" > .source-commit
 
 FROM node:22-slim
 WORKDIR /app
