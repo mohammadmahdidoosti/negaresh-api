@@ -24,6 +24,7 @@ import { runCategoryContent, type ContentRequest } from './pipeline';
 import { PROMPT_VERSION } from './prompts';
 import { kv, listResults } from './store';
 import { findCategory, searchCategories } from './taxonomy';
+import type { QualityLevel } from '@/lib/types';
 
 export type CampaignStatus = 'running' | 'paused' | 'done' | 'canceled';
 
@@ -32,6 +33,7 @@ export interface CampaignOptions {
   briefModel?: string;
   humanizerWriter?: string;
   humanize?: boolean;
+  humanizerQuality?: QualityLevel;
 }
 
 export interface Campaign {
@@ -348,6 +350,7 @@ async function runOne(c: Campaign, categoryId: string): Promise<void> {
       ...(c.options.draftModel ? { draftModel: c.options.draftModel } : {}),
       ...(c.options.briefModel ? { briefModel: c.options.briefModel } : {}),
       ...(c.options.humanizerWriter ? { humanizerWriter: c.options.humanizerWriter } : {}),
+      ...(c.options.humanizerQuality ? { humanizerQuality: c.options.humanizerQuality } : {}),
       humanize: c.options.humanize !== false,
     };
     const result = await runner(req);

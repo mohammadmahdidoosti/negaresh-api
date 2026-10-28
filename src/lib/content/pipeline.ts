@@ -8,7 +8,7 @@ import { randomUUID } from 'node:crypto';
 import { PipelineError, type StepEvent } from '@/lib/api/runner';
 import { createExecutionContext, generateText, HumanizerError, rewriteText } from '@/lib/humanizer';
 import { countWords, transformUnprotected } from '@/lib/text';
-import { CONTENT_TYPES, VOICES, type ContentType, type Voice } from '@/lib/types';
+import { CONTENT_TYPES, QUALITY_LEVELS, VOICES, type ContentType, type QualityLevel, type Voice } from '@/lib/types';
 import { usageByStage, usageSummary } from '@/lib/usage-ledger';
 import { briefMessages, draftMessages, formatDraft, normalizeHeadings, parseBrief, parseDraft, PROMPT_VERSION, repairMessages, zwnjMessages, type Brief, type DraftSections } from './prompts';
 import { runQa, type QaCheck, type QaLevel } from './qa';
@@ -47,6 +47,8 @@ export interface ContentRequest {
   humanizerGuards?: 'light' | 'strict';
   /** Reuse the brief and pre-humanize draft of a stored result (controlled humanizer comparisons). */
   reuseDraftFrom?: string;
+  /** Humanizer strictness (default CONTENT_HUMANIZER_QUALITY or 'precise'): 'readable' rewrites more freely. */
+  humanizerQuality?: QualityLevel;
 }
 
 export interface ContentResult {
@@ -55,7 +57,7 @@ export interface ContentResult {
   label?: string;
   promptVersion: string;
   category: { id: string; name: string; path: string; level: number; tier: Tier; productCount: number; url: string | null; flags: string };
-  models: { brief: string; draft: string; humanize: boolean; lengthScale?: number; humanizerWriter?: string; humanizerGuards?: string };
+  models: { brief: string; draft: string; humanize: boolean; lengthScale?: number; humanizerWriter?: string; humanizerGuards?: string; humanizerQuality?: string };
   data: { productSample: number; brands: Array<{ brand: string; count: number }>; specs: Record<string, string[]>; siteError?: string };
   brief: Brief & { droppedFacts: number };
   content: DraftSections;
@@ -456,6 +458,8 @@ async function runCategoryContentInner(
 
   // ---------- 4. humanize ----------
   const humanizerWriter = req.humanizerWriter || process.env.CONTENT_HUMANIZER_WRITER?.trim() || undefined;
+  const envQuality = process.env.CONTENT_HUMANIZER_QUALITY?.trim() as QualityLevel | undefined;
+  const humanizerQuality: QualityLevel = req.humanizerQuality ?? (envQuality && QUALITY_LEVELS.includes(envQuality) ? envQuality : 'precise');
   const guardMode = req.humanizerGuards ?? (process.env.CONTENT_HUMANIZER_GUARDS === 'strict' ? 'strict' : 'light');
   let finalBelow = draft!.below;
   const humanized: ContentResult['humanized'] = { applied: false };
@@ -470,7 +474,7 @@ async function runCategoryContentInner(
           voice: asVoice(l1?.humanizer.voice ?? 'standard'),
           contentType: asContentType(l1?.humanizer.contentType ?? 'commercial'),
           perspective: 'third_person',
-          quality: 'precise',
+          quality: humanizerQuality,
           keywords,
           // The humanizer's writer expands 1.4–2×. Any word target made it run a "compress" refine that rewrote the
           // text back to the draft (87–100% of sentences unchanged).
@@ -528,7 +532,7 @@ async function runCategoryContentInner(
     ...(req.label ? { label: req.label } : {}),
     promptVersion: PROMPT_VERSION,
     category: { id: cat.id, name: cat.name, path, level: cat.level, tier: effectiveTier, productCount, url: products.live?.link ?? null, flags: cat.flags },
-    models: { brief: briefModel, draft: draftModel, humanize: humanized.applied, lengthScale: scale, ...(humanizerWriter ? { humanizerWriter } : {}), ...(humanized.applied ? { humanizerGuards: guardMode } : {}) },
+    models: { brief: briefModel, draft: draftModel, humanize: humanized.applied, lengthScale: scale, ...(humanizerWriter ? { humanizerWriter } : {}), ...(humanized.applied ? { humanizerGuards: guardMode, humanizerQuality } : {}) },
     data: { productSample: products.names.length, brands: products.brands, specs: products.specs, ...(products.error ? { siteError: products.error } : {}) },
     brief: cleanBrief,
     content,

@@ -1,7 +1,7 @@
 /**
  * Bulk generation.
  * POST /api/v1/content/campaigns — body: { label?, categories?: string[], limit?: number, onlyMissing?: boolean (default true),
- *   maxUsd?: number, draftModel?, briefModel?, humanizerWriter?, humanize?: boolean }
+ *   maxUsd?: number, draftModel?, briefModel?, humanizerWriter?, humanize?: boolean, humanizerQuality? }
  *   Without `categories`: every category with products, most products first.
  * GET  /api/v1/content/campaigns — all campaigns with progress.
  */
@@ -9,6 +9,7 @@ import { apiError, requireApiKey } from '@/lib/api/auth';
 import { readBoundedJson } from '@/lib/request-body';
 import { CampaignError, createCampaign, listCampaigns, startCampaignWorker } from '@/lib/content/campaigns';
 import { DRAFT_MODELS } from '@/lib/content/pipeline';
+import { QUALITY_LEVELS, type QualityLevel } from '@/lib/types';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -45,6 +46,9 @@ export async function POST(request: Request) {
         ...(str(body.briefModel) ? { briefModel: str(body.briefModel) } : {}),
         ...(model(body.humanizerWriter) ? { humanizerWriter: model(body.humanizerWriter) } : {}),
         humanize: body.humanize !== false,
+        ...(typeof body.humanizerQuality === 'string' && (QUALITY_LEVELS as readonly string[]).includes(body.humanizerQuality)
+          ? { humanizerQuality: body.humanizerQuality as QualityLevel }
+          : {}),
       },
     });
     return Response.json({ ok: true, campaign }, { status: 201, headers: { 'Cache-Control': 'no-store' } });
