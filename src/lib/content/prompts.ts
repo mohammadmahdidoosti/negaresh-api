@@ -94,6 +94,8 @@ export interface DraftInput {
   natural?: boolean;
   /** Counted fact sheet of the category (catalog.ts); the reference for every series/size/brand statement. */
   catalog?: string;
+  /** No word target: as long as the real data supports, without repetition. */
+  freeLength?: boolean;
   /** Market terms with definitions the store confirmed (glossary.ts). */
   terms?: Array<{ term: string; definition: string }>;
 }
@@ -174,7 +176,9 @@ export function draftMessages(input: DraftInput) {
 ${extraSections}
 - سؤالات متداول: یک H2 مانند «سوالات متداول دربارهٔ ${input.category.name}» و هر سؤال یک H3 با پاسخ کوتاه و دقیق (۲ تا ۴ جمله). تعداد سؤال‌ها: ${FAQ_BY_TIER[tier]}.
 - بخش پایانی با یک تیتر H2 جذاب (هرگز «نتیجه‌گیری» یا «جمع‌بندی»): مزیت‌های کلیدی در دو خط، سپس دعوت به دریافت مشاورهٔ فنی، استعلام قیمت عمده و خرید مستقیم از فروشگاه آنلاین کاروان صنعت.
-- طول راهنما: ${input.words.min} تا ${input.words.max} کلمه.
+${input.freeLength
+    ? '- طول راهنما آزاد است: هر قدر دادهٔ واقعی و نکتهٔ کاربردی هست بنویس و هیچ چیز را برای کوتاه شدن حذف نکن. ولی هیچ نکته‌ای را در دو بخش تکرار نکن و چیزی برای پر شدن ننویس؛ اگر داده کم است، صفحه کوتاه بماند.'
+    : `- طول راهنما: ${input.words.min} تا ${input.words.max} کلمه.`}
 ===META_TITLE===
 عنوان سئو: حداکثر ۶۰ نویسه، با نام دقیق دسته در ابتدا و در صورت جا شدن «| کاروان صنعت».
 ===META_DESCRIPTION===
@@ -257,6 +261,7 @@ export function factCheckMessages(input: { name: string; catalog: string; terms:
 1. جمله‌ای که با کاتالوگ تناقض دارد: سایز یا مقداری که به خانواده/سری اشتباه نسبت داده شده، مقایسهٔ سری‌ها یا برندها که عددهای کاتالوگ خلافش را نشان می‌دهد، تعداد یا تنوعی که با کاتالوگ نمی‌خواند، جدولی که با متن خودش یا با کاتالوگ نمی‌خواند.
 2. تعریف یک اصطلاح تأییدشده که با تعریف داده‌شده فرق دارد.
 3. ادعای فنی مشخص و قطعی که نه از کاتالوگ برمی‌آید و نه دانش عمومی و قطعی این حوزه است (مثلاً عدد عملکرد، طول عمر، استاندارد یا گواهی برای محصول).
+4. تکرار: نکته‌ای که در دو بخش مختلف تقریباً با همان محتوا آمده است (quote از تکرار دوم؛ problem بگوید با کدام بخش تکراری است و حذف یا ادغام شود).
 دانش فنی عمومی و درست (طرز کار، کاربرد، نکتهٔ نصب) را ایراد نگیر. سلیقهٔ نگارشی، طول و سئو را ایراد نگیر. اگر مطمئن نیستی، ایراد نگیر.
 خروجی فقط یک آرایهٔ JSON (بدون توضیح و بدون \`\`\`): [{"quote": "عین بخشی از جملهٔ متن، حداکثر ۲۰ کلمه", "problem": "ایراد و شکل درست در یک جملهٔ کوتاه"}]. اگر ایرادی نیست: []`;
   const user = `برگهٔ کاتالوگ:\n${input.catalog}\n\nاصطلاحات تأییدشده:\n${input.terms.map(t => `- ${t.term}: ${t.definition}`).join('\n') || '—'}\n\nمتن راهنما:\n${input.text}`;

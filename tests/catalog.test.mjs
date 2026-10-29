@@ -149,3 +149,16 @@ test("a comparison of two kinds is not a wrong definition", () => {
   assert.equal(wrongTermUses("### زانو پوشفیت بهتر است یا چسبی؟").length, 0);
   assert.equal(wrongTermUses("پوشفیت با چسب مخصوص آب‌بندی می‌شود.").length, 1);
 });
+
+test("free length: no word target in the prompt, length reported but never flagged, no shorten request", async () => {
+  const { repairProblems } = await jiti.import("../src/lib/content/pipeline.ts");
+  const brief = { angle: "", audience: "mixed", search_intent: "", term_explanation: "", lsi: [], facts: [], brands: [], headings: [], table: null, check_before_order: [], common_mistakes: [], glossary: [], faq: [], cautions: [] };
+  const m = draftMessages({ category: { name: "زانو", path: "x", level: 3, synonyms: "", productCount: 10, tier: "small" }, industry: "", brief, tone: "", audienceDesc: "", sectionRules: { include: [], exclude: [] }, profileCautions: [], words: { min: 150, max: 240 }, freeLength: true });
+  assert.ok(m[0].content.includes("طول راهنما آزاد است"));
+  assert.ok(!m[0].content.includes("150 تا 240"));
+  const long = "کلمه ".repeat(2000);
+  const q = runQa({ name: "زانو", tier: "small", above: "زانو", below: long, metaTitle: "زانو", metaDescription: "", evidence: "", allowedBrands: [], knownBrands: [], siteDataAvailable: true, freeLength: true });
+  assert.equal(q.checks.find(c => c.id === "length").level, "pass");
+  assert.ok(!repairProblems(q, "small", "زانو", true).some(p => p.includes("کم کن")));
+  assert.ok(repairProblems({ ...q, checks: [] }, "small", "زانو", false).some(p => p.includes("کم کن")));
+});

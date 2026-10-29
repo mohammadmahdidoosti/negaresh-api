@@ -46,6 +46,8 @@ export interface QaInput {
   allowedBrands: string[];
   knownBrands: string[];
   siteDataAvailable: boolean;
+  /** Length is free: reported, never flagged. */
+  freeLength?: boolean;
 }
 
 export function runQa(q: QaInput): { level: QaLevel; checks: QaCheck[]; words: number } {
@@ -72,7 +74,8 @@ export function runQa(q: QaInput): { level: QaLevel; checks: QaCheck[]; words: n
 
   // 3. length
   const lenOk = words >= range.min * 0.85 && words <= range.max * 1.2;
-  add('length', lenOk ? 'pass' : 'warn', `طول راهنما ${range.min} تا ${range.max} کلمه`, `${words} کلمه`);
+  if (q.freeLength) add('length', 'pass', 'طول راهنما (آزاد)', `${words} کلمه`);
+  else add('length', lenOk ? 'pass' : 'warn', `طول راهنما ${range.min} تا ${range.max} کلمه`, `${words} کلمه`);
   const aboveWords = countWords(q.above);
   add('above-length', aboveWords >= 45 && aboveWords <= 140 ? 'pass' : 'warn', 'متن بالای لیست ۶۰ تا ۱۱۰ کلمه', `${aboveWords} کلمه`);
 

@@ -48,6 +48,7 @@ export async function POST(request: Request) {
         humanize: body.humanize !== false,
         ...(typeof body.naturalDraft === 'boolean' ? { naturalDraft: body.naturalDraft } : {}),
         ...(typeof body.catalogFacts === 'boolean' ? { catalogFacts: body.catalogFacts } : {}),
+        ...(typeof body.freeLength === 'boolean' ? { freeLength: body.freeLength } : {}),
         ...(typeof body.humanizerQuality === 'string' && (QUALITY_LEVELS as readonly string[]).includes(body.humanizerQuality)
           ? { humanizerQuality: body.humanizerQuality as QualityLevel }
           : {}),

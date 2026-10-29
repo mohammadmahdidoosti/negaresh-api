@@ -46,6 +46,7 @@ export async function POST(request: Request) {
     ...(typeof body.humanizerQuality === 'string' && (QUALITY_LEVELS as readonly string[]).includes(body.humanizerQuality) ? { humanizerQuality: body.humanizerQuality as QualityLevel } : {}),
     ...(typeof body.naturalDraft === 'boolean' ? { naturalDraft: body.naturalDraft } : {}),
     ...(typeof body.catalogFacts === 'boolean' ? { catalogFacts: body.catalogFacts } : {}),
+    ...(typeof body.freeLength === 'boolean' ? { freeLength: body.freeLength } : {}),
     ...(body.humanizerGuards === 'light' || body.humanizerGuards === 'strict' ? { humanizerGuards: body.humanizerGuards } : {}),
     ...(typeof body.lengthScale === 'number' && body.lengthScale >= 0.3 && body.lengthScale <= 1.5 ? { lengthScale: body.lengthScale } : {}),
   };

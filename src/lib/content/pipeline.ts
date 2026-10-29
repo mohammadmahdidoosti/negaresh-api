@@ -59,6 +59,11 @@ export interface ContentRequest {
    * draft against the catalog (default CONTENT_CATALOG_FACTS=on|off, off).
    */
   catalogFacts?: boolean;
+  /**
+   * No word target: the writer covers what the data supports, at any length (default CONTENT_FREE_LENGTH=on|off, off).
+   * QA reports the length but does not flag it, and the repair never asks to shorten.
+   */
+  freeLength?: boolean;
 }
 
 export interface ContentResult {
@@ -67,7 +72,7 @@ export interface ContentResult {
   label?: string;
   promptVersion: string;
   category: { id: string; name: string; path: string; level: number; tier: Tier; productCount: number; url: string | null; flags: string };
-  models: { brief: string; draft: string; humanize: boolean; lengthScale?: number; humanizerWriter?: string; humanizerGuards?: string; humanizerQuality?: string; naturalDraft?: boolean; catalogFacts?: boolean };
+  models: { brief: string; draft: string; humanize: boolean; lengthScale?: number; humanizerWriter?: string; humanizerGuards?: string; humanizerQuality?: string; naturalDraft?: boolean; catalogFacts?: boolean; freeLength?: boolean };
   data: { productSample: number; productsRead?: number; brands: Array<{ brand: string; count: number }>; specs: Record<string, string[]>; catalog?: string; siteError?: string };
   /** Draft compared with the catalog by a second reader; findings go into the repair call. */
   factCheck?: { ran: boolean; findings: FactFinding[]; remaining: FactFinding[] };
@@ -130,6 +135,8 @@ export function zwnjHealthy(text: string): boolean {
 }
 
 const MAX_TOKENS: Record<Tier, number> = { hub: 8000, standard: 5000, small: 3500, skip: 3000 };
+/** Room for long pages when the length is free (Persian is ~2 tokens per word). */
+const MAX_TOKENS_FREE: Record<Tier, number> = { hub: 20000, standard: 14000, small: 9000, skip: 6000 };
 
 /** The theme renders the category name as H1, so any H1 in content becomes an H2. */
 export function demoteH1(md: string): string {
@@ -239,7 +246,7 @@ function asContentType(v: string): ContentType {
 const detailList = (c?: QaCheck) => (c?.detail ?? '').replace(/^[^:]*:\s*/, '');
 
 /** QA findings the draft model can fix in one targeted edit. Never asks to add length (that invites filler). */
-export function repairProblems(qa: { checks: QaCheck[]; words: number }, tier: Tier, name: string): string[] {
+export function repairProblems(qa: { checks: QaCheck[]; words: number }, tier: Tier, name: string, freeLength = false): string[] {
   const by = new Map(qa.checks.filter(c => c.level !== 'pass').map(c => [c.id, c]));
   const range = TIER_WORDS[tier];
   const out: string[] = [];
@@ -257,7 +264,7 @@ export function repairProblems(qa: { checks: QaCheck[]; words: number }, tier: T
   if (by.has('hype')) out.push(`این کلمات تبلیغاتی را حذف یا با جملهٔ واقع‌بینانه جایگزین کن: ${by.get('hype')!.detail}`);
   if (by.has('placeholders')) out.push('جاهای خالی [[...]] را حذف کن و جمله را بدون آن کامل کن.');
   if (by.has('h2-count')) out.push(`تیتر هر بخش اصلی باید H2 (## ) باشد و فقط سؤال‌های متداول H3 (### ) باشند؛ حداقل ${tier === 'hub' ? 7 : tier === 'standard' ? 5 : 3} تیتر ##.`);
-  if (qa.words > range.max * 1.1) {
+  if (!freeLength && qa.words > range.max * 1.1) {
     const aim = Math.round((range.min + range.max) / 2);
     const cut = Math.round((1 - aim / qa.words) * 100);
     out.push(`راهنمای زیر لیست (BELOW) ${qa.words} کلمه است و باید حدود ${aim} کلمه شود: از هر بخش حدود ${cut}٪ کم کن (پاراگراف‌ها را به ۲ تا ۳ جمله برسان، جمله‌های تکراری و توضیح کلی را حذف کن، پاسخ هر سؤال متداول حداکثر ۲ جمله). تیترها، جدول و بولت‌های «قبل از سفارش» بمانند.`);
@@ -316,6 +323,8 @@ async function runCategoryContentInner(
   const isOwnL2 = l2Cat?.id === cat.id;
   const catalogFacts = (req.catalogFacts ?? process.env.CONTENT_CATALOG_FACTS === 'on') && !!products.catalog;
   const catalog = catalogFacts && products.catalog ? catalogText(products.catalog) : undefined;
+  const freeLength = req.freeLength ?? process.env.CONTENT_FREE_LENGTH === 'on';
+  const maxTokens = (freeLength ? MAX_TOKENS_FREE : MAX_TOKENS)[effectiveTier];
   const allNames = products.allNames?.length ? products.allNames : products.names;
   const terms = catalogFacts ? termsFor([cat.name, path, ...allNames].join('\n')).map(t => ({ term: t.term, definition: t.definition })) : [];
 
@@ -399,6 +408,7 @@ async function runCategoryContentInner(
     sectionRules: l1?.section_rules ?? { include: [], exclude: [] },
     profileCautions: [...(l1?.cautions ?? []), ...(l2?.cautions ?? [])],
     words: { min: Math.round(words.min * scale), max: Math.round(words.max * scale) },
+    freeLength,
     natural: naturalDraft,
     ...(catalog ? { catalog, terms } : {}),
   };
@@ -409,7 +419,7 @@ async function runCategoryContentInner(
   for (let attempt = 1; attempt <= 3 && !draft; attempt++) {
     const raw = await generateText(draftMessages(draftInput), {
       model: draftModel,
-      maxTokens: MAX_TOKENS[effectiveTier],
+      maxTokens,
       temperature: 0.6,
       stage: 'content-draft',
       useFallback: false,
@@ -431,7 +441,7 @@ async function runCategoryContentInner(
     step('draft', 'گذاشتن نیم‌فاصله‌ها با مدل ارزان');
     try {
       const raw = await generateText(zwnjMessages(formatDraft(draft)), {
-        model: briefModel, maxTokens: MAX_TOKENS[effectiveTier] * 2, temperature: 0, stage: 'content-repair', useFallback: false, ...caps(),
+        model: briefModel, maxTokens: maxTokens * 2, temperature: 0, stage: 'content-repair', useFallback: false, ...caps(),
       }, ctx);
       const fixed = parseDraft(raw);
       const bare = (t: string) => t.replace(/[\u200c\s]+/g, '');
@@ -455,6 +465,7 @@ async function runCategoryContentInner(
   const qaBase = {
     name: cat.name,
     tier: effectiveTier,
+    freeLength,
     evidence,
     // a brand that is part of the category name or path is allowed by definition (e.g. «کلید فیوز زاویر»)
     // plus every store brand that occurs in this category's product names or subcategory names («لوله نیوفیت و پکس»)
@@ -491,7 +502,7 @@ async function runCategoryContentInner(
   // ---------- 3b. targeted repair of the draft (cheap, one call, kept only if QA improves) ----------
   let repair: ContentResult['repair'];
   const draftQa = runQa({ ...qaBase, above: draft!.above, below: draft!.below, metaTitle: draft!.metaTitle, metaDescription: draft!.metaDescription });
-  const problems = process.env.CONTENT_REPAIR === 'off' || reused ? [] : repairProblems(draftQa, effectiveTier, cat.name);
+  const problems = process.env.CONTENT_REPAIR === 'off' || reused ? [] : repairProblems(draftQa, effectiveTier, cat.name, freeLength);
   let lintHitsBefore = 0;
   const lintHits = (md: string) =>
     new Set(lintText(md, { voice: 'standard', contentType: 'commercial', quality: 'readable' }).violations
@@ -512,7 +523,7 @@ async function runCategoryContentInner(
     try {
       const raw = await generateText(repairMessages(cat.name, draft!, problems), {
         model: draftModel,
-        maxTokens: MAX_TOKENS[effectiveTier],
+        maxTokens,
         temperature: 0.2,
         stage: 'content-repair',
         useFallback: false,
@@ -542,7 +553,9 @@ async function runCategoryContentInner(
           (qaScore(fixedQa) === qaScore(draftQa) && ((lintHitsBefore >= 2 && lintHits(fixed.below) < lintHitsBefore) || factsBetter)) ||
           (factsBetter && qaScore(fixedQa) <= qaScore(draftQa) + 1)
         );
-        if (keepsZwnj && better && fixedQa.words >= TIER_WORDS[effectiveTier].min * 0.85) {
+        // a repair must not delete much of the guide
+        const keepsBody = freeLength ? fixedQa.words >= draftQa.words * 0.8 : fixedQa.words >= TIER_WORDS[effectiveTier].min * 0.85;
+        if (keepsZwnj && better && keepsBody) {
           draft = fixed;
           repair.accepted = true;
           if (factCheck) factCheck.remaining = remaining;
@@ -641,7 +654,7 @@ async function runCategoryContentInner(
     ...(req.label ? { label: req.label } : {}),
     promptVersion: PROMPT_VERSION,
     category: { id: cat.id, name: cat.name, path, level: cat.level, tier: effectiveTier, productCount, url: products.live?.link ?? null, flags: cat.flags },
-    models: { brief: briefModel, draft: draftModel, humanize: humanized.applied, lengthScale: scale, naturalDraft, catalogFacts, ...(humanizerWriter ? { humanizerWriter } : {}), ...(humanized.applied ? { humanizerGuards: guardMode, humanizerQuality } : {}) },
+    models: { brief: briefModel, draft: draftModel, humanize: humanized.applied, lengthScale: scale, naturalDraft, catalogFacts, freeLength, ...(humanizerWriter ? { humanizerWriter } : {}), ...(humanized.applied ? { humanizerGuards: guardMode, humanizerQuality } : {}) },
     data: { productSample: products.names.length, productsRead: allNames.length, brands: products.brands, specs: products.specs, ...(catalog ? { catalog } : {}), ...(products.error ? { siteError: products.error } : {}) },
     ...(factCheck ? { factCheck } : {}),
     brief: cleanBrief,

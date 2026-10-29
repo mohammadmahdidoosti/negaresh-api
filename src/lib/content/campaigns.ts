@@ -36,6 +36,7 @@ export interface CampaignOptions {
   humanizerQuality?: QualityLevel;
   naturalDraft?: boolean;
   catalogFacts?: boolean;
+  freeLength?: boolean;
 }
 
 export interface Campaign {
@@ -355,6 +356,7 @@ async function runOne(c: Campaign, categoryId: string): Promise<void> {
       ...(c.options.humanizerQuality ? { humanizerQuality: c.options.humanizerQuality } : {}),
       ...(typeof c.options.naturalDraft === 'boolean' ? { naturalDraft: c.options.naturalDraft } : {}),
       ...(typeof c.options.catalogFacts === 'boolean' ? { catalogFacts: c.options.catalogFacts } : {}),
+      ...(typeof c.options.freeLength === 'boolean' ? { freeLength: c.options.freeLength } : {}),
       humanize: c.options.humanize !== false,
     };
     const result = await runner(req);
