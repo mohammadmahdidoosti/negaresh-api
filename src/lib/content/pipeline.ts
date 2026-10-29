@@ -459,7 +459,11 @@ async function runCategoryContentInner(
       }, ctx);
       const fixed = parseDraft(raw);
       const bare = (t: string) => t.replace(/[\u200c\s]+/g, '');
-      if (fixed.above && fixed.below && bare(formatDraft(fixed)) === bare(formatDraft(draft))) draft = fixed;
+      // spacing only, give or take a few letters (the model sometimes also fixes a typo); never content
+      const a = bare(formatDraft(fixed));
+      const b = bare(formatDraft(draft));
+      const close = a === b || (Math.abs(a.length - b.length) <= b.length * 0.005 && editDistance(a, b) <= Math.max(5, b.length * 0.005));
+      if (fixed.above && fixed.below && close) draft = fixed;
     } catch {
       ctx.signal?.throwIfAborted();
     }

@@ -194,3 +194,7 @@ test("v1.9 defaults: humanizer off, catalog, natural drafting and free length on
   assert.ok(m[0].content.includes("هر نکته، عدد یا توصیه فقط یک بار"));
   assert.ok(!m[0].content.includes("یک بخش «اشتباهات رایج در انتخاب یا نصب» (۲ تا ۳ مورد از بریف)"));
 });
+
+test("«کوپلی برخلاف جوشی» states the difference, not a wrong definition", () => {
+  assert.equal(wrongTermUses("اتصال کوپلی برخلاف جوشی و الکتروفیوژن به تجهیزات خاص نیاز ندارد.").length, 0);
+});
