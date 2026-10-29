@@ -49,3 +49,10 @@ test("candidate JSON is parsed defensively", () => {
   assert.deepEqual(parseMetaCandidates('{"titles":["a",1],"descriptions":["b"]}'), { titles: ["a"], descriptions: ["b"] });
   assert.deepEqual(parseMetaCandidates("nope"), { titles: [], descriptions: [] });
 });
+
+test("the fallback description never ends mid-phrase", () => {
+  const d = fallbackDescription("لوله، شیلنگ و اتصالات", ["تکاب اتصال", "پلی رود"]);
+  assert.ok(d.length >= 120 && d.length <= 155, `${d.length}: ${d}`);
+  assert.ok(d.endsWith("."));
+  assert.ok(!d.endsWith("در همین."));
+});

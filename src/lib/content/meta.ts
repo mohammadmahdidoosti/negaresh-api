@@ -83,9 +83,21 @@ function cutWords(s: string, max: number): string {
 
 export function fallbackDescription(name: string, brands: string[], fact?: string): string {
   const brandPart = brands.length >= 2 ? ` از برندهای ${brands[0]} و ${brands[1]}` : brands.length ? ` برند ${brands[0]}` : '';
-  let d = `${name}${brandPart} در کاروان صنعت.${fact ? ` ${fact.replace(/\.$/, '')}.` : ''} راهنمای انتخاب، مشاورهٔ فنی و خرید آنلاین.`;
-  if (d.length < DESC_MIN) d = `${d} مقایسهٔ انواع و نکات پیش از سفارش در همین صفحه.`;
-  return cutWords(d, DESC_MAX);
+  // whole sentences only: each is added while the description stays within the limit (never cut mid-phrase)
+  const parts = [
+    `${name}${brandPart} در کاروان صنعت.`,
+    fact ? `${fact.replace(/[.\s]+$/, '')}.` : '',
+    'راهنمای انتخاب، مشاورهٔ فنی و خرید آنلاین.',
+    'مقایسهٔ انواع و نکات پیش از سفارش در همین صفحه.',
+    'نکات انتخاب را پیش از سفارش بخوانید.',
+  ].filter(Boolean);
+  let d = '';
+  for (const p of parts) {
+    const next = d ? `${d} ${p}` : p;
+    if (next.length <= DESC_MAX) d = next;
+    if (d.length >= DESC_MIN) break;
+  }
+  return d.length <= DESC_MAX ? d : cutWords(d, DESC_MAX);
 }
 
 export interface MetaChoice {
