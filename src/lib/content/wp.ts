@@ -46,6 +46,19 @@ export async function wpCheck(termId?: number) {
     canEditCategories: !!(caps.manage_product_terms || caps.edit_product_terms || caps.manage_categories),
     ...(me.status !== 200 ? { error: `HTTP ${me.status}: ${me.error ?? ''}` } : {}),
   };
+  if (me.status !== 200) {
+    // which layer refuses: WordPress answers in JSON, a firewall/web server with an HTML page
+    const probes: Record<string, unknown> = {};
+    for (const [k, path] of [
+      ['termEdit', `/wp-json/wp/v2/product_cat/${termId ?? 1}?context=edit`],
+      ['wcCategory', `/wp-json/wc/v3/products/categories/${termId ?? 1}`],
+      ['publicTerm', `/wp-json/wp/v2/product_cat/${termId ?? 1}`],
+    ] as const) {
+      const r = await wpGet<Record<string, unknown>>(path);
+      probes[k] = { status: r.status, json: r.data !== null, error: r.error ? r.error.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').slice(0, 160) : undefined };
+    }
+    out.probes = probes;
+  }
   if (termId && me.status === 200) {
     const term = await wpGet<Record<string, unknown>>(`/wp-json/wp/v2/product_cat/${termId}?context=edit`);
     const d = term.data ?? {};
