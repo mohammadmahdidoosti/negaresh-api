@@ -34,6 +34,35 @@ function specNumbers(text: string): string[] {
 export const ABSOLUTE =
   /(?<![\p{L}])((?:نشتی|نشت|خرابی|گرفتگی|رسوب|خوردگی|زنگ[‌ ]?زدگی|خطر|صدا|لرزش|افت\s+فشار)[^.،؛\n]{0,25}?(?:حذف|برطرف)\s*می[‌ ]?(?:کند|شود)|(?:نشتی|نشت|خرابی|گرفتگی|رسوب|خوردگی|خطر)[^.،؛\n]{0,25}?از\s*بین\s*می[‌ ]?(?:برد|رود)|تضمین\s*می[‌ ]?(?:کند|شود)|هرگز\s+[^.،؛\n]{0,30}?نمی[‌ ]?\S+|کاملاً\s+(?:ایمن|بی[‌ ]?خطر|مطمئن|بدون\s+نشتی|آب[‌ ]?بند)|بدون\s+هیچ\s+(?:مشکل|نشتی|خطر)|هیچ[‌ ]?گاه\s+[^.،؛\n]{0,30}?نمی[‌ ]?\S+)/gu;
 
+const sentencesOf = (md: string) =>
+  md
+    .split('\n')
+    .filter(l => !/^\s*\|/.test(l) && !/^#/.test(l))
+    .join('\n')
+    .split(/(?<=[.؟?!])\s+|\n+/)
+    .map(s => s.replace(/[*_>\-•]+/g, ' ').replace(/\s+/g, ' ').trim())
+    .filter(s => s.split(' ').length >= 6);
+const wordsOf = (s: string) => new Set(norm(toLatin(s)).split(/[\s،,.؛:()«»؟?!]+/).filter(w => w.length > 2));
+
+/** Later sentences that repeat an earlier one (Jaccard ≥ 0.5 over words longer than 2 letters). */
+export function repeatedSentences(md: string, threshold = 0.5): Array<{ first: string; second: string }> {
+  const ss = sentencesOf(md);
+  const ws = ss.map(wordsOf);
+  const out: Array<{ first: string; second: string }> = [];
+  for (let k = 1; k < ss.length; k++) {
+    for (let i = 0; i < k; i++) {
+      let common = 0;
+      for (const w of ws[k]) if (ws[i].has(w)) common++;
+      const union = ws[i].size + ws[k].size - common;
+      if (union && common / union >= threshold) {
+        out.push({ first: ss[i], second: ss[k] });
+        break;
+      }
+    }
+  }
+  return out;
+}
+
 export interface QaInput {
   name: string;
   tier: Tier;
@@ -53,15 +82,17 @@ export interface QaInput {
 export function runQa(q: QaInput): { level: QaLevel; checks: QaCheck[]; words: number } {
   const checks: QaCheck[] = [];
   const add = (id: string, level: QaLevel, label: string, detail?: string) => checks.push({ id, level, label, detail });
-  const nName = norm(q.name);
+  // «250» in the name and «۲۵۰» in the text are the same keyword
+  const nk = (s: string) => norm(toLatin(s));
+  const nName = nk(q.name);
   const words = countWords(q.below);
   const range = TIER_WORDS[q.tier];
 
   // 1. keyword placement
-  add('kw-above', norm(q.above).includes(nName) ? 'pass' : 'fail', 'نام دقیق دسته در متن بالای لیست');
+  add('kw-above', nk(q.above).includes(nName) ? 'pass' : 'fail', 'نام دقیق دسته در متن بالای لیست');
   const first100 = q.below.split(/\s+/).slice(0, 110).join(' ');
-  add('kw-below', norm(first100).includes(nName) ? 'pass' : 'warn', 'نام دسته در ۱۰۰ کلمهٔ اول راهنما');
-  add('kw-title', norm(q.metaTitle).includes(nName) ? 'pass' : 'warn', 'نام دسته در عنوان سئو');
+  add('kw-below', nk(first100).includes(nName) ? 'pass' : 'warn', 'نام دسته در ۱۰۰ کلمهٔ اول راهنما');
+  add('kw-title', nk(q.metaTitle).includes(nName) ? 'pass' : 'warn', 'نام دسته در عنوان سئو');
 
   // 2. structure
   const h1 = (q.below.match(/^#\s/gm) ?? []).length;
@@ -118,7 +149,12 @@ export function runQa(q: QaInput): { level: QaLevel; checks: QaCheck[]; words: n
   add('site-data', q.siteDataAvailable ? 'pass' : 'warn', 'دادهٔ زندهٔ محصولات از سایت');
   const textWords = countWords(`${q.above}\n${q.below}`);
   const zwnj = (`${q.above}\n${q.below}`.match(/\u200c/g) ?? []).length;
-  add('zwnj', textWords < 80 || zwnj >= textWords * 0.01 ? 'pass' : 'warn', 'نیم‌فاصله‌ها سالم (مثل «می‌شود»)', `${zwnj} نیم‌فاصله در ${textWords} کلمه`);
+  const aboveZwnj = (q.above.match(/\u200c/g) ?? []).length;
+  const zwnjOk = (textWords < 80 || zwnj >= textWords * 0.01) && (aboveWords < 35 || aboveZwnj > 0);
+  add('zwnj', zwnjOk ? 'pass' : 'warn', 'نیم‌فاصله‌ها سالم (مثل «می‌شود»)', `${zwnj} نیم‌فاصله در ${textWords} کلمه${aboveWords >= 35 && !aboveZwnj ? '؛ متن بالای لیست هیچ نیم‌فاصله‌ای ندارد' : ''}`);
+  // the same point said twice (sentences sharing most of their words), tables excluded
+  const repeats = repeatedSentences(q.below);
+  add('repeat', repeats.length >= 3 ? 'warn' : 'pass', 'بدون تکرار یک نکته در چند بخش', repeats.length ? `${repeats.length} جملهٔ تکراری: ${repeats.slice(0, 4).map(r => `«${r.second.slice(0, 70)}»`).join('، ')}` : undefined);
 
   // 5. meta
   const t = q.metaTitle.length;

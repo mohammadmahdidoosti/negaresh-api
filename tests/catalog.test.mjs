@@ -162,3 +162,35 @@ test("free length: no word target in the prompt, length reported but never flagg
   assert.ok(!repairProblems(q, "small", "زانو", true).some(p => p.includes("کم کن")));
   assert.ok(repairProblems({ ...q, checks: [] }, "small", "زانو", false).some(p => p.includes("کم کن")));
 });
+
+test("v1.9: repeated points, Persian digits in the keyword, ABOVE without ZWNJ, «1 1/4» inch", async () => {
+  const { repeatedSentences } = await jiti.import("../src/lib/content/qa.ts");
+  const { draftZwnjHealthy } = await jiti.import("../src/lib/content/pipeline.ts");
+  const md = "## الف\nفشار کاری شیر باید حداقل هم‌سطح فشار شبکه باشد تا نشتی نکند.\n\n## ب\n- فشار کاری شیر باید حداقل هم‌سطح فشار شبکه باشد.\n\n## ج\nسایز شیر را با قطر لوله محل نصب مطابقت دهید تا افت فشار نداشته باشید.";
+  const reps = repeatedSentences(md);
+  assert.equal(reps.length, 1);
+  assert.match(reps[0].second, /^فشار کاری شیر باید/);
+  const q = runQa({ name: "کلید فیوز 250 آمپر پیچاز", tier: "small", above: "کلید فیوز ۲۵۰ آمپر پیچاز برای تابلو است.", below: "## کلید فیوز ۲۵۰ آمپر پیچاز\nمتن.", metaTitle: "کلید فیوز ۲۵۰ آمپر پیچاز", metaDescription: "", evidence: "", allowedBrands: [], knownBrands: [], siteDataAvailable: true, freeLength: true });
+  assert.equal(q.checks.find(c => c.id === "kw-above").level, "pass");
+  assert.equal(q.checks.find(c => c.id === "kw-title").level, "pass");
+  const noZ = "کلید فیوز قطعکنندهای است که مدار را از زیر بار خارج میکند و برای تابلوسازان و پیمانکاران و مجریان برق طراحی شدهاند تا با فیوز حفاظت مطمئنی برای خطوط اصلی فراهم کنند و نکته کلیدی انتخاب مدل است";
+  const good = "می‌شود ".repeat(100);
+  assert.equal(draftZwnjHealthy({ above: noZ, below: good }), false);
+  assert.equal(draftZwnjHealthy({ above: "کوتاه", below: good }), true);
+  const cat = buildCatalog([P("شیر فلکه کشوئی برنجی 1 1/4 اینچ فشار 16 بار برند کیز ایران"), P("شیر فلکه کشوئی برنجی 1/2 اینچ فشار 16 بار برند کیز ایران")], { categoryName: "شیر فلکه" });
+  assert.deepEqual(cat.families[0].values["اینچ"], ["1/2", "1 1/4"]);
+});
+
+test("v1.9 defaults: humanizer off, catalog, natural drafting and free length on", async () => {
+  const { defaultHumanize } = await jiti.import("../src/lib/content/pipeline.ts");
+  const prev = process.env.CONTENT_HUMANIZE;
+  delete process.env.CONTENT_HUMANIZE;
+  assert.equal(defaultHumanize(), false);
+  process.env.CONTENT_HUMANIZE = "on";
+  assert.equal(defaultHumanize(), true);
+  if (prev === undefined) delete process.env.CONTENT_HUMANIZE; else process.env.CONTENT_HUMANIZE = prev;
+  const brief = { angle: "", audience: "mixed", search_intent: "", term_explanation: "", lsi: [], facts: [], brands: [], headings: [], table: null, check_before_order: [], common_mistakes: [], glossary: [], faq: [], cautions: [] };
+  const m = draftMessages({ category: { name: "زانو", path: "x", level: 3, synonyms: "", productCount: 3, tier: "small" }, industry: "", brief, tone: "", audienceDesc: "", sectionRules: { include: [], exclude: [] }, profileCautions: [], words: { min: 150, max: 240 }, freeLength: true });
+  assert.ok(m[0].content.includes("هر نکته، عدد یا توصیه فقط یک بار"));
+  assert.ok(!m[0].content.includes("یک بخش «اشتباهات رایج در انتخاب یا نصب» (۲ تا ۳ مورد از بریف)"));
+});

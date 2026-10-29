@@ -50,7 +50,7 @@ export function decodeName(s: string): string {
 }
 
 export const UNIT_RE =
-  /(\d+(?:[.,/]\d+)?(?:\s*(?:تا|-)\s*\d+(?:[.,/]\d+)?)?)\s*(کیلووار|کیلو\s?وار|کیلووات|کیلو\s?وات|کیلو\s?آمپر|آمپر|ولت|وات|اسب(?:\s*بخار)?|اینچ|میلی\s?متر|میلیمتر|سانتی\s?متر|سانت|لیتری|لیتر|بار|psi|درجه|پل|فاز|کیلوگرم|کیلویی|گرم|متری|متر|دور|هرتز|kva|kvar|kw|hp|mm|bar)(?![\p{L}])/giu;
+  /(\d+\s+\d+\/\d+|\d+(?:[.,/]\d+)?(?:\s*(?:تا|-)\s*\d+(?:[.,/]\d+)?)?)\s*(کیلووار|کیلو\s?وار|کیلووات|کیلو\s?وات|کیلو\s?آمپر|آمپر|ولت|وات|اسب(?:\s*بخار)?|اینچ|میلی\s?متر|میلیمتر|سانتی\s?متر|سانت|لیتری|لیتر|بار|psi|درجه|پل|فاز|کیلوگرم|کیلویی|گرم|متری|متر|دور|هرتز|kva|kvar|kw|hp|mm|bar)(?![\p{L}])/giu;
 
 const UNIT_CANON: Record<string, string> = {
   'کیلو وار': 'کیلووار', kvar: 'کیلووار', 'کیلو وات': 'کیلووات', kw: 'کیلووات', 'کیلو آمپر': 'کیلوآمپر', 'کیلوآمپر': 'کیلوآمپر',
@@ -102,6 +102,7 @@ export function splitName(raw: string): { family: string; size: string | null } 
  * (1.6-2.5 آمپر); otherwise only the number next to the unit is the value.
  */
 export function unitValue(raw: string): string {
+  if (/^\d+\s+\d+\/\d+$/.test(raw.trim())) return raw.trim().replace(/\s+/g, ' '); // «1 1/4» اینچ
   const v = raw.replace(/\s+/g, '');
   const m = v.match(/^(\d+(?:[.,/]\d+)?)-(\d+(?:[.,/]\d+)?)$/);
   if (m && parseFloat(m[1]) >= parseFloat(m[2])) return m[2];

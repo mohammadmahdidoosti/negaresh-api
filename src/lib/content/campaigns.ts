@@ -20,7 +20,7 @@ const HEARTBEAT_MS = 30_000;
 /** No heartbeat for this long = the worker is gone (a category takes ~1–3 minutes). */
 const STALE_MS = 3 * 60_000;
 import { acquireSlot, PipelineError } from '@/lib/api/runner';
-import { runCategoryContent, type ContentRequest } from './pipeline';
+import { defaultHumanize, runCategoryContent, type ContentRequest } from './pipeline';
 import { PROMPT_VERSION } from './prompts';
 import { kv, listResults } from './store';
 import { findCategory, searchCategories } from './taxonomy';
@@ -357,7 +357,7 @@ async function runOne(c: Campaign, categoryId: string): Promise<void> {
       ...(typeof c.options.naturalDraft === 'boolean' ? { naturalDraft: c.options.naturalDraft } : {}),
       ...(typeof c.options.catalogFacts === 'boolean' ? { catalogFacts: c.options.catalogFacts } : {}),
       ...(typeof c.options.freeLength === 'boolean' ? { freeLength: c.options.freeLength } : {}),
-      humanize: c.options.humanize !== false,
+      humanize: typeof c.options.humanize === 'boolean' ? c.options.humanize : defaultHumanize(),
     };
     const result = await runner(req);
     entry.resultId = result.resultId;

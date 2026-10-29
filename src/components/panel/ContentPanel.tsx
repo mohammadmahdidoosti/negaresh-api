@@ -199,7 +199,7 @@ export default function ContentPanel() {
 	const [pasted, setPasted] = useState('');
 
 	const [draftModel, setDraftModel] = useState('');
-	const [humanize, setHumanize] = useState(true);
+	const [humanize, setHumanize] = useState(false);
 	const [label, setLabel] = useState('');
 	const [submitting, setSubmitting] = useState(false);
 	const [submitError, setSubmitError] = useState('');

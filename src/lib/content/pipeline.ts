@@ -14,7 +14,7 @@ import { usageByStage, usageSummary } from '@/lib/usage-ledger';
 import { catalogText } from './catalog';
 import { termsFor, VERIFIED_TERMS } from './glossary';
 import { briefMessages, draftMessages, factCheckMessages, formatDraft, normalizeHeadings, parseBrief, parseDraft, parseFactFindings, PROMPT_VERSION, repairMessages, zwnjMessages, type Brief, type DraftSections, type FactFinding } from './prompts';
-import { runQa, type QaCheck, type QaLevel } from './qa';
+import { repeatedSentences, runQa, type QaCheck, type QaLevel } from './qa';
 import { fetchProductData } from './site';
 import { getResult, saveResult } from './store';
 import {
@@ -101,6 +101,11 @@ export interface ContentResult {
 }
 
 const env = (name: string, fallback: string) => process.env[name]?.trim() || fallback;
+/**
+ * The humanizer is off by default since content-v1.9: the draft already follows its checklist, and with the full
+ * catalog it added little (CONTENT_HUMANIZE=on turns it back on for requests that do not say).
+ */
+export const defaultHumanize = () => process.env.CONTENT_HUMANIZE === 'on';
 export const DEFAULT_BRIEF_MODEL = () => env('CONTENT_BRIEF_MODEL', 'anthropic/claude-haiku-5.5');
 export const DEFAULT_DRAFT_MODEL = () => env('CONTENT_DRAFT_MODEL', 'anthropic/claude-sonnet-5.5');
 export const DRAFT_MODELS = () =>
@@ -128,10 +133,15 @@ export function lengthFactor(model: string): number {
  * Some DeepSeek responses arrive with every ZWNJ dropped («میرود»، «قطعکننده»). Normal Persian output has
  * a ZWNJ every ~15–20 words; a long text with almost none is regenerated rather than "repaired" by guessing.
  */
-export function zwnjHealthy(text: string): boolean {
+export function zwnjHealthy(text: string, minWords = 80): boolean {
   const words = countWords(text);
-  if (words < 80) return true;
+  if (words < minWords) return true;
   return (text.match(/\u200c/g) ?? []).length >= words * 0.01;
+}
+
+/** Both parts are checked on their own: a short ABOVE without any ZWNJ hides inside a long, healthy BELOW. */
+export function draftZwnjHealthy(d: { above: string; below: string }): boolean {
+  return zwnjHealthy(d.below) && zwnjHealthy(d.above, 35);
 }
 
 const MAX_TOKENS: Record<Tier, number> = { hub: 8000, standard: 5000, small: 3500, skip: 3000 };
@@ -246,7 +256,7 @@ function asContentType(v: string): ContentType {
 const detailList = (c?: QaCheck) => (c?.detail ?? '').replace(/^[^:]*:\s*/, '');
 
 /** QA findings the draft model can fix in one targeted edit. Never asks to add length (that invites filler). */
-export function repairProblems(qa: { checks: QaCheck[]; words: number }, tier: Tier, name: string, freeLength = false): string[] {
+export function repairProblems(qa: { checks: QaCheck[]; words: number }, tier: Tier, name: string, freeLength = false, belowForRepeat = ''): string[] {
   const by = new Map(qa.checks.filter(c => c.level !== 'pass').map(c => [c.id, c]));
   const range = TIER_WORDS[tier];
   const out: string[] = [];
@@ -255,6 +265,10 @@ export function repairProblems(qa: { checks: QaCheck[]; words: number }, tier: T
   if (by.has('no-price')) out.push(`قیمت، تخفیف و وعدهٔ ارسال را حذف کن (${by.get('no-price')!.detail ?? ''}).`);
   if (by.has('brands')) out.push(`این برندها در این دسته فروخته نمی‌شوند؛ نامشان را حذف کن: ${by.get('brands')!.detail}`);
   if (by.has('numbers') && detailList(by.get('numbers')).split('،').filter(x => x.trim()).length >= 3) out.push(`این عددها در دادهٔ محصولات نیستند؛ حذفشان کن یا جمله را بدون عدد بنویس: ${detailList(by.get('numbers'))}`);
+  if (by.has('repeat')) {
+    const reps = repeatedSentences(belowForRepeat);
+    if (reps.length) out.push(`این جمله‌ها همان نکتهٔ جمله‌ای قبلی را تکرار می‌کنند؛ تکرار دوم را حذف کن یا دو جمله را در جای اول ادغام کن (اگر بخشی با حذف تکرار خالی شد، آن بخش را حذف کن):\n${reps.slice(0, 10).map(r => `   - «${r.second.slice(0, 160)}» (تکرار: «${r.first.slice(0, 80)}»)`).join('\n')}`);
+  }
   if (by.has('absolute')) out.push(`این ادعاهای قطعی را واقع‌بینانه کن (مثلاً «احتمال نشتی را کم می‌کند» به جای «نشتی را حذف می‌کند»): ${by.get('absolute')!.detail}`);
   if (by.has('terms')) {
     const detail = by.get('terms')!.detail ?? '';
@@ -321,9 +335,9 @@ async function runCategoryContentInner(
   const effectiveTier: Tier = tier === 'skip' ? 'small' : tier;
   const words = TIER_WORDS[effectiveTier];
   const isOwnL2 = l2Cat?.id === cat.id;
-  const catalogFacts = (req.catalogFacts ?? process.env.CONTENT_CATALOG_FACTS === 'on') && !!products.catalog;
+  const catalogFacts = (req.catalogFacts ?? process.env.CONTENT_CATALOG_FACTS !== 'off') && !!products.catalog;
   const catalog = catalogFacts && products.catalog ? catalogText(products.catalog) : undefined;
-  const freeLength = req.freeLength ?? process.env.CONTENT_FREE_LENGTH === 'on';
+  const freeLength = req.freeLength ?? process.env.CONTENT_FREE_LENGTH !== 'off';
   const maxTokens = (freeLength ? MAX_TOKENS_FREE : MAX_TOKENS)[effectiveTier];
   const allNames = products.allNames?.length ? products.allNames : products.names;
   const terms = catalogFacts ? termsFor([cat.name, path, ...allNames].join('\n')).map(t => ({ term: t.term, definition: t.definition })) : [];
@@ -388,12 +402,12 @@ async function runCategoryContentInner(
   const cleanBrief = { ...brief!, facts, brands, droppedFacts: brief!.facts.length - facts.length + (brief!.brands.length - brands.length) };
 
   // ---------- 3. draft ----------
-  const freeHumanizer = req.humanize !== false && (req.humanizerGuards ?? (process.env.CONTENT_HUMANIZER_GUARDS === 'strict' ? 'strict' : 'light')) === 'light';
+  const freeHumanizer = (req.humanize ?? defaultHumanize()) && (req.humanizerGuards ?? (process.env.CONTENT_HUMANIZER_GUARDS === 'strict' ? 'strict' : 'light')) === 'light';
   // a free humanizer lengthens the text ~1.5×, so the draft is asked shorter
   const scale = req.lengthScale && req.lengthScale >= 0.3 && req.lengthScale <= 1.5
     ? req.lengthScale
     : lengthFactor(draftModel) * (freeHumanizer ? 0.7 : 1) * (catalogFacts ? 0.75 : 1);
-  const naturalDraft = req.naturalDraft ?? process.env.CONTENT_NATURAL_DRAFT === 'on';
+  const naturalDraft = req.naturalDraft ?? process.env.CONTENT_NATURAL_DRAFT !== 'off';
   if (!reused) step('draft', `نگارش با ${draftModel}${naturalDraft ? ' (نگارش طبیعی)' : ''}`);
   // with the catalog, the main brands of the category may be named even if the brief listed fewer
   const draftBrief = catalogFacts
@@ -429,13 +443,13 @@ async function runCategoryContentInner(
     parsed.below = normalizeHeadings(demoteH1(parsed.below));
     if (parsed.above && parsed.below) {
       lastParsed = parsed;
-      if (zwnjHealthy(`${parsed.above}\n${parsed.below}`)) draft = parsed;
+      if (draftZwnjHealthy(parsed)) draft = parsed;
       else step('draft', 'نیم‌فاصله‌های پیش‌نویس حذف شده بود؛ نگارش دوباره');
     }
   }
   draft ??= lastParsed;
   if (!draft) throw new PipelineError('خروجی نگارش ساختار مورد انتظار را نداشت.', 502, 'draft_invalid');
-  if (!zwnjHealthy(`${draft.above}\n${draft.below}`)) {
+  if (!draftZwnjHealthy(draft)) {
     // Some categories come back without ZWNJ on every retry: let the cheap brief model put them back,
     // and accept its answer only if nothing but spacing changed.
     step('draft', 'گذاشتن نیم‌فاصله‌ها با مدل ارزان');
@@ -502,7 +516,7 @@ async function runCategoryContentInner(
   // ---------- 3b. targeted repair of the draft (cheap, one call, kept only if QA improves) ----------
   let repair: ContentResult['repair'];
   const draftQa = runQa({ ...qaBase, above: draft!.above, below: draft!.below, metaTitle: draft!.metaTitle, metaDescription: draft!.metaDescription });
-  const problems = process.env.CONTENT_REPAIR === 'off' || reused ? [] : repairProblems(draftQa, effectiveTier, cat.name, freeLength);
+  const problems = process.env.CONTENT_REPAIR === 'off' || reused ? [] : repairProblems(draftQa, effectiveTier, cat.name, freeLength, draft!.below);
   let lintHitsBefore = 0;
   const lintHits = (md: string) =>
     new Set(lintText(md, { voice: 'standard', contentType: 'commercial', quality: 'readable' }).violations
@@ -537,7 +551,7 @@ async function runCategoryContentInner(
         const fixedQa = runQa({ ...qaBase, above: fixed.above, below: fixed.below, metaTitle: fixed.metaTitle, metaDescription: fixed.metaDescription });
         repair.after = { level: fixedQa.level, words: fixedQa.words };
         // must not lose much of the guide (a model that "fixes" by deleting sections is rejected)
-        const keepsZwnj = zwnjHealthy(`${fixed.above}\n${fixed.below}`) || !zwnjHealthy(`${draft!.above}\n${draft!.below}`);
+        const keepsZwnj = draftZwnjHealthy(fixed) || !draftZwnjHealthy(draft!);
         let remaining = factCheck?.findings ?? [];
         if (factCheck?.findings.length) {
           try {
@@ -574,7 +588,7 @@ async function runCategoryContentInner(
   const guardMode = req.humanizerGuards ?? (process.env.CONTENT_HUMANIZER_GUARDS === 'strict' ? 'strict' : 'light');
   let finalBelow = draft!.below;
   const humanized: ContentResult['humanized'] = { applied: false };
-  if (req.humanize !== false) {
+  if ((req.humanize ?? defaultHumanize())) {
     step('humanize', 'هیومنایز راهنمای زیر لیست');
     const draftWords = countWords(draft!.below);
     const keywords = [...new Set([cat.name, 'کاروان صنعت', ...brands.map(b => b.name), ...products.brands.map(b => b.brand)])].filter(k => k.length <= 120).slice(0, 30);

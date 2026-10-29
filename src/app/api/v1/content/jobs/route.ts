@@ -8,7 +8,7 @@ import { apiError, requireApiKey } from '@/lib/api/auth';
 import { publicOrigin } from '@/lib/api/http';
 import { createTask, listJobs, QueueFullError, serializeJob } from '@/lib/api/jobs';
 import { readBoundedJson } from '@/lib/request-body';
-import { DRAFT_MODELS, runCategoryContent, type ContentRequest } from '@/lib/content/pipeline';
+import { defaultHumanize, DRAFT_MODELS, runCategoryContent, type ContentRequest } from '@/lib/content/pipeline';
 import { QUALITY_LEVELS, type QualityLevel } from '@/lib/types';
 import { findCategory } from '@/lib/content/taxonomy';
 
@@ -37,7 +37,7 @@ export async function POST(request: Request) {
   const base: Omit<ContentRequest, 'category'> = {
     ...(typeof body.draftModel === 'string' && body.draftModel ? { draftModel: body.draftModel } : {}),
     ...(typeof body.briefModel === 'string' && body.briefModel ? { briefModel: body.briefModel } : {}),
-    humanize: body.humanize !== false,
+    humanize: typeof body.humanize === 'boolean' ? body.humanize : defaultHumanize(),
     force: body.force === true,
     ...(typeof body.label === 'string' && body.label ? { label: body.label.slice(0, 80) } : {}),
     // allowed humanizer writers: the configured draft models (same price caps), e.g. DeepSeek

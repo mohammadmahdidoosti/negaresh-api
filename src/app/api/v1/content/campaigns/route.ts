@@ -8,7 +8,7 @@
 import { apiError, requireApiKey } from '@/lib/api/auth';
 import { readBoundedJson } from '@/lib/request-body';
 import { CampaignError, createCampaign, listCampaigns, startCampaignWorker } from '@/lib/content/campaigns';
-import { DRAFT_MODELS } from '@/lib/content/pipeline';
+import { defaultHumanize, DRAFT_MODELS } from '@/lib/content/pipeline';
 import { QUALITY_LEVELS, type QualityLevel } from '@/lib/types';
 
 export const runtime = 'nodejs';
@@ -45,7 +45,7 @@ export async function POST(request: Request) {
         ...(model(body.draftModel) ? { draftModel: model(body.draftModel) } : {}),
         ...(str(body.briefModel) ? { briefModel: str(body.briefModel) } : {}),
         ...(model(body.humanizerWriter) ? { humanizerWriter: model(body.humanizerWriter) } : {}),
-        humanize: body.humanize !== false,
+        humanize: typeof body.humanize === 'boolean' ? body.humanize : defaultHumanize(),
         ...(typeof body.naturalDraft === 'boolean' ? { naturalDraft: body.naturalDraft } : {}),
         ...(typeof body.catalogFacts === 'boolean' ? { catalogFacts: body.catalogFacts } : {}),
         ...(typeof body.freeLength === 'boolean' ? { freeLength: body.freeLength } : {}),
