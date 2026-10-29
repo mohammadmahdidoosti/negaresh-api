@@ -161,7 +161,17 @@ export function buildCatalog(products: CatalogProduct[], opts: { categoryName: s
 }
 
 const fa = (n: number) => n.toLocaleString('fa-IR');
-const list = (v: string[], max: number) => (v.length <= max ? v.join('، ') : `${v.slice(0, max).join('، ')} و ${fa(v.length - max)} مقدار دیگر`);
+/**
+ * Short lists in full; long ones as count + smallest and largest + an even spread of real values.
+ * (Showing only the first values made the writer state ranges like «10-10 تا 12-14» for a family that goes to 45-50.)
+ */
+export function valueList(v: string[], max: number): string {
+  if (v.length <= max) return v.join('، ');
+  const k = Math.max(3, max - 2);
+  const spread = Array.from({ length: k }, (_, i) => v[Math.round((i * (v.length - 1)) / (k - 1))]);
+  return `${fa(v.length)} مقدار، از ${v[0]} تا ${v[v.length - 1]}؛ از جمله ${[...new Set(spread)].join('، ')}`;
+}
+const list = valueList;
 
 /** Plain-text fact sheet for the prompts (Persian labels, values as in product names). */
 export function catalogText(c: Catalog, opts: { maxValues?: number } = {}): string {

@@ -333,7 +333,8 @@ async function runCategoryContentInner(
     siblings: siblingsOf(cat).slice(0, 25).map(c => c.name),
     children: childrenOf(cat).slice(0, 25).map(c => `${c.name} (${c.products})`),
     products: {
-      sample: products.names,
+      // the catalog already summarizes every product; a shorter sample keeps the brief call small
+      sample: catalog ? products.names.slice(0, 30) : products.names,
       brands: products.brands,
       specs: products.specs,
       ...(catalog ? { catalog } : {}),
@@ -379,7 +380,7 @@ async function runCategoryContentInner(
   // a free humanizer lengthens the text ~1.5×, so the draft is asked shorter
   const scale = req.lengthScale && req.lengthScale >= 0.3 && req.lengthScale <= 1.5
     ? req.lengthScale
-    : lengthFactor(draftModel) * (freeHumanizer ? 0.7 : 1);
+    : lengthFactor(draftModel) * (freeHumanizer ? 0.7 : 1) * (catalogFacts ? 0.75 : 1);
   const naturalDraft = req.naturalDraft ?? process.env.CONTENT_NATURAL_DRAFT === 'on';
   if (!reused) step('draft', `نگارش با ${draftModel}${naturalDraft ? ' (نگارش طبیعی)' : ''}`);
   // with the catalog, the main brands of the category may be named even if the brief listed fewer

@@ -126,3 +126,12 @@ test("confirmed glossary: electrofusion «کوپلر» is not «کوپلی»; «
   assert.ok(names.includes("کوپله (در اتصالات پلیکا)") && names.includes("پلیکا") && names.includes("بوشن فلزی"));
   assert.ok(!names.includes("کوپلی"));
 });
+
+test("long value lists show the count, the full range and a spread", async () => {
+  const { valueList } = await jiti.import("../src/lib/content/catalog.ts");
+  const v = Array.from({ length: 40 }, (_, i) => String(i + 1));
+  const out = valueList(v, 14);
+  assert.match(out, /^۴۰ مقدار، از 1 تا 40؛ از جمله 1، /);
+  assert.ok(out.includes("، 40"));
+  assert.equal(valueList(["1", "2"], 14), "1، 2");
+});
