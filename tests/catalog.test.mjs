@@ -115,7 +115,8 @@ test("QA warns on absolute claims and wrong term definitions", () => {
 
 test("«پرسی، کوپلی و جوشی» is a list of kinds, not a wrong definition", () => {
   assert.equal(wrongTermUses("- اتصالات پرسی، کوپلی و جوشی هر سیستم را فقط با لوله سازگار همان سیستم نصب کنید.").length, 0);
-  assert.equal(wrongTermUses("کوپلی و جوش لب‌به‌لب هر دو رایج‌اند").length, 1);
+  assert.equal(wrongTermUses("کوپلی و جوش لب‌به‌لب هر دو رایج‌اند").length, 0);
+  assert.equal(wrongTermUses("کوپلی نوعی جوش لب‌به‌لب است").length, 1);
 });
 
 test("confirmed glossary: electrofusion «کوپلر» is not «کوپلی»; «مغزی» with an inner thread is flagged", () => {
