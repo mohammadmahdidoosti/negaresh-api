@@ -662,6 +662,8 @@ async function runCategoryContentInner(
   if (process.env.CONTENT_META_STEP !== 'off') {
     step('meta', 'عنوان سئو و توضیح متا');
     const metaBrands = products.brands.slice(0, 4).map(b => b.brand);
+    // a hub's title names its main product types (direct subcategories with the most products)
+    const hubTypes = effectiveTier === 'hub' ? childrenOf(cat).filter(c => c.products > 0).sort((a, b) => b.products - a.products).slice(0, 6).map(c => c.name) : [];
     let candidates = { titles: [] as string[], descriptions: [] as string[] };
     try {
       const raw = await generateText(metaMessages({
@@ -671,6 +673,8 @@ async function runCategoryContentInner(
         brands: metaBrands,
         facts: facts.slice(0, 8).map(f => f.fact),
         families: products.catalog?.families.slice(0, 6).map(f => `${f.family} (${f.count})`) ?? [],
+        hub: effectiveTier === 'hub',
+        types: hubTypes,
       }), { model: briefModel, maxTokens: 2500, temperature: 0.7, stage: 'content-meta', useFallback: false, ...caps() }, ctx);
       candidates = parseMetaCandidates(raw);
     } catch {
@@ -682,6 +686,7 @@ async function runCategoryContentInner(
       name: cat.name,
       brands: metaBrands,
       fact: facts[0]?.fact,
+      ...(hubTypes.length ? { titleTerms: hubTypes } : {}),
     });
     content.metaTitle = spell(choice.title);
     content.metaDescription = spell(choice.description);
