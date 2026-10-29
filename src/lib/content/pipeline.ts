@@ -11,7 +11,9 @@ import { lintText } from '@/lib/linter';
 import { countWords, transformUnprotected } from '@/lib/text';
 import { CONTENT_TYPES, QUALITY_LEVELS, VOICES, type ContentType, type QualityLevel, type Voice } from '@/lib/types';
 import { usageByStage, usageSummary } from '@/lib/usage-ledger';
-import { briefMessages, draftMessages, formatDraft, normalizeHeadings, parseBrief, parseDraft, PROMPT_VERSION, repairMessages, zwnjMessages, type Brief, type DraftSections } from './prompts';
+import { catalogText } from './catalog';
+import { termsFor, VERIFIED_TERMS } from './glossary';
+import { briefMessages, draftMessages, factCheckMessages, formatDraft, normalizeHeadings, parseBrief, parseDraft, parseFactFindings, PROMPT_VERSION, repairMessages, zwnjMessages, type Brief, type DraftSections, type FactFinding } from './prompts';
 import { runQa, type QaCheck, type QaLevel } from './qa';
 import { fetchProductData } from './site';
 import { getResult, saveResult } from './store';
@@ -52,6 +54,11 @@ export interface ContentRequest {
   humanizerQuality?: QualityLevel;
   /** Natural-writing rules in the draft prompt (default CONTENT_NATURAL_DRAFT=on|off, off). */
   naturalDraft?: boolean;
+  /**
+   * Counted catalog of the whole category in the brief and draft prompts, confirmed terms, and a fact check of the
+   * draft against the catalog (default CONTENT_CATALOG_FACTS=on|off, off).
+   */
+  catalogFacts?: boolean;
 }
 
 export interface ContentResult {
@@ -60,8 +67,10 @@ export interface ContentResult {
   label?: string;
   promptVersion: string;
   category: { id: string; name: string; path: string; level: number; tier: Tier; productCount: number; url: string | null; flags: string };
-  models: { brief: string; draft: string; humanize: boolean; lengthScale?: number; humanizerWriter?: string; humanizerGuards?: string; humanizerQuality?: string; naturalDraft?: boolean };
-  data: { productSample: number; brands: Array<{ brand: string; count: number }>; specs: Record<string, string[]>; siteError?: string };
+  models: { brief: string; draft: string; humanize: boolean; lengthScale?: number; humanizerWriter?: string; humanizerGuards?: string; humanizerQuality?: string; naturalDraft?: boolean; catalogFacts?: boolean };
+  data: { productSample: number; productsRead?: number; brands: Array<{ brand: string; count: number }>; specs: Record<string, string[]>; catalog?: string; siteError?: string };
+  /** Draft compared with the catalog by a second reader; findings go into the repair call. */
+  factCheck?: { ran: boolean; findings: FactFinding[]; remaining: FactFinding[] };
   brief: Brief & { droppedFacts: number };
   content: DraftSections;
   draftBelow: string;
@@ -236,6 +245,12 @@ export function repairProblems(qa: { checks: QaCheck[]; words: number }, tier: T
   if (by.has('no-price')) out.push(`قیمت، تخفیف و وعدهٔ ارسال را حذف کن (${by.get('no-price')!.detail ?? ''}).`);
   if (by.has('brands')) out.push(`این برندها در این دسته فروخته نمی‌شوند؛ نامشان را حذف کن: ${by.get('brands')!.detail}`);
   if (by.has('numbers') && detailList(by.get('numbers')).split('،').filter(x => x.trim()).length >= 3) out.push(`این عددها در دادهٔ محصولات نیستند؛ حذفشان کن یا جمله را بدون عدد بنویس: ${detailList(by.get('numbers'))}`);
+  if (by.has('absolute')) out.push(`این ادعاهای قطعی را واقع‌بینانه کن (مثلاً «احتمال نشتی را کم می‌کند» به جای «نشتی را حذف می‌کند»): ${by.get('absolute')!.detail}`);
+  if (by.has('terms')) {
+    const detail = by.get('terms')!.detail ?? '';
+    const defs = VERIFIED_TERMS.filter(t => detail.includes(t.term)).map(t => `${t.term}: ${t.definition}`).join(' ');
+    out.push(`تعریف این اصطلاح‌ها اشتباه است؛ مطابق تعریف تأییدشده درستشان کن (${defs}): ${detail}`);
+  }
   if (by.has('hype')) out.push(`این کلمات تبلیغاتی را حذف یا با جملهٔ واقع‌بینانه جایگزین کن: ${by.get('hype')!.detail}`);
   if (by.has('placeholders')) out.push('جاهای خالی [[...]] را حذف کن و جمله را بدون آن کامل کن.');
   if (by.has('h2-count')) out.push(`تیتر هر بخش اصلی باید H2 (## ) باشد و فقط سؤال‌های متداول H3 (### ) باشند؛ حداقل ${tier === 'hub' ? 7 : tier === 'standard' ? 5 : 3} تیتر ##.`);
@@ -296,6 +311,10 @@ async function runCategoryContentInner(
   const effectiveTier: Tier = tier === 'skip' ? 'small' : tier;
   const words = TIER_WORDS[effectiveTier];
   const isOwnL2 = l2Cat?.id === cat.id;
+  const catalogFacts = (req.catalogFacts ?? process.env.CONTENT_CATALOG_FACTS === 'on') && !!products.catalog;
+  const catalog = catalogFacts && products.catalog ? catalogText(products.catalog) : undefined;
+  const allNames = products.allNames?.length ? products.allNames : products.names;
+  const terms = catalogFacts ? termsFor([cat.name, path, ...allNames].join('\n')).map(t => ({ term: t.term, definition: t.definition })) : [];
 
   // ---------- 2. brief ----------
   step('brief', `بریف با ${briefModel}`);
@@ -317,6 +336,7 @@ async function runCategoryContentInner(
       sample: products.names,
       brands: products.brands,
       specs: products.specs,
+      ...(catalog ? { catalog } : {}),
       ...(products.error ? { note: products.error } : {}),
     },
   };
@@ -342,8 +362,14 @@ async function runCategoryContentInner(
     }
   }
   // Keep only facts/brands whose evidence is a real product name.
-  const nameCorpus = products.names.map(norm);
-  const evidenced = (e: string) => !!e && nameCorpus.some(n => n.includes(norm(e)) || norm(e).includes(n));
+  const nameCorpus = allNames.map(norm);
+  const catalogNorm = catalog ? norm(catalog) : '';
+  const evidenced = (e: string) => {
+    if (!e) return false;
+    const fromCatalog = e.replace(/^\s*کاتالوگ\s*[:：]\s*/, '');
+    if (catalogNorm && fromCatalog !== e && norm(fromCatalog).length >= 3 && catalogNorm.includes(norm(fromCatalog))) return true;
+    return nameCorpus.some(n => n.includes(norm(e)) || norm(e).includes(n));
+  };
   const facts = brief!.facts.filter(f => evidenced(f.evidence));
   const brands = brief!.brands.filter(b => evidenced(b.evidence) || products.brands.some(x => norm(x.brand) === norm(b.name)));
   const cleanBrief = { ...brief!, facts, brands, droppedFacts: brief!.facts.length - facts.length + (brief!.brands.length - brands.length) };
@@ -356,16 +382,21 @@ async function runCategoryContentInner(
     : lengthFactor(draftModel) * (freeHumanizer ? 0.7 : 1);
   const naturalDraft = req.naturalDraft ?? process.env.CONTENT_NATURAL_DRAFT === 'on';
   if (!reused) step('draft', `نگارش با ${draftModel}${naturalDraft ? ' (نگارش طبیعی)' : ''}`);
+  // with the catalog, the main brands of the category may be named even if the brief listed fewer
+  const draftBrief = catalogFacts
+    ? { ...cleanBrief, brands: [...cleanBrief.brands, ...products.brands.slice(0, 8).filter(b => !cleanBrief.brands.some(x => norm(x.name) === norm(b.brand))).map(b => ({ name: b.brand, evidence: 'کاتالوگ' }))] }
+    : cleanBrief;
   const draftInput = {
     category: briefInput.category,
     industry: [l1Cat.name, l2Cat && !isOwnL2 ? l2Cat.name : null].filter(Boolean).join(' / '),
-    brief: cleanBrief,
+    brief: draftBrief,
     tone: l1?.tone ?? '',
     audienceDesc: l1?.audience_desc ?? '',
     sectionRules: l1?.section_rules ?? { include: [], exclude: [] },
     profileCautions: [...(l1?.cautions ?? []), ...(l2?.cautions ?? [])],
     words: { min: Math.round(words.min * scale), max: Math.round(words.max * scale) },
     natural: naturalDraft,
+    ...(catalog ? { catalog, terms } : {}),
   };
   let draft: DraftSections | undefined = reused
     ? { above: reused.content.above, below: reused.draftBelow, metaTitle: reused.content.metaTitle, metaDescription: reused.content.metaDescription }
@@ -401,7 +432,7 @@ async function runCategoryContentInner(
       const fixed = parseDraft(raw);
       const bare = (t: string) => t.replace(/[\u200c\s]+/g, '');
       if (fixed.above && fixed.below && bare(formatDraft(fixed)) === bare(formatDraft(draft))) draft = fixed;
-    } catch (error) {
+    } catch {
       ctx.signal?.throwIfAborted();
     }
   }
@@ -410,7 +441,8 @@ async function runCategoryContentInner(
     cat.name,
     path,
     cat.synonyms,
-    ...products.names,
+    ...allNames,
+    ...(catalog ? [catalog] : []),
     ...Object.entries(products.specs).flatMap(([u, v]) => v.map(x => `${x} ${u}`)),
     JSON.stringify(l1 ?? {}),
     JSON.stringify(l2 ?? {}),
@@ -425,6 +457,24 @@ async function runCategoryContentInner(
     knownBrands: allKnownBrands(),
     siteDataAvailable: !products.error && products.names.length > 0,
   };
+  // ---------- 3a. fact check of the draft against the catalog (cheap model, one call) ----------
+  let factCheck: ContentResult['factCheck'];
+  const checkFacts = async (text: string): Promise<FactFinding[]> => {
+    const raw = await generateText(factCheckMessages({ name: cat.name, catalog: catalog!, terms, text }), {
+      model: briefModel, maxTokens: 3000, temperature: 0, stage: 'content-factcheck', useFallback: false, ...caps(),
+    }, ctx);
+    return parseFactFindings(raw);
+  };
+  if (catalog && !reused) {
+    step('factcheck', 'مقایسهٔ پیش‌نویس با کاتالوگ');
+    try {
+      const findings = await checkFacts(`${draft!.above}\n\n${draft!.below}`);
+      factCheck = { ran: true, findings, remaining: findings };
+    } catch (error) {
+      ctx.signal?.throwIfAborted();
+      factCheck = { ran: false, findings: [], remaining: [] };
+    }
+  }
   // ---------- 3b. targeted repair of the draft (cheap, one call, kept only if QA improves) ----------
   let repair: ContentResult['repair'];
   const draftQa = runQa({ ...qaBase, above: draft!.above, below: draft!.below, metaTitle: draft!.metaTitle, metaDescription: draft!.metaDescription });
@@ -439,6 +489,9 @@ async function runCategoryContentInner(
     const hits = [...new Set(lint.violations.filter(v => v.category === 'filler' || v.category === 'bureaucratic_verb').map(v => v.match.trim()))];
     lintHitsBefore = hits.length;
     if (hits.length >= 2) problems.push(`این عبارت‌های کلیشه‌ای/اداری را با بیان ساده و مستقیم عوض کن: ${hits.slice(0, 12).join('، ')}`);
+  }
+  if (factCheck?.findings.length && process.env.CONTENT_REPAIR !== 'off') {
+    problems.push(`این جمله‌ها با برگهٔ کاتالوگ یا اصطلاحات تأییدشده نمی‌خوانند؛ هر کدام را مطابق دادهٔ کاتالوگ درست کن یا اگر داده‌ای برایش نیست حذفش کن:\n${factCheck.findings.map(f => `   - «${f.quote}»: ${f.problem}`).join('\n')}`);
   }
   if (problems.length) {
     step('repair', `اصلاح ${problems.length} ایراد پیش‌نویس با ${draftModel}`);
@@ -461,10 +514,25 @@ async function runCategoryContentInner(
         repair.after = { level: fixedQa.level, words: fixedQa.words };
         // must not lose much of the guide (a model that "fixes" by deleting sections is rejected)
         const keepsZwnj = zwnjHealthy(`${fixed.above}\n${fixed.below}`) || !zwnjHealthy(`${draft!.above}\n${draft!.below}`);
-        const better = qaScore(fixedQa) < qaScore(draftQa) || (qaScore(fixedQa) === qaScore(draftQa) && lintHitsBefore >= 2 && lintHits(fixed.below) < lintHitsBefore);
+        let remaining = factCheck?.findings ?? [];
+        if (factCheck?.findings.length) {
+          try {
+            remaining = await checkFacts(`${fixed.above}\n\n${fixed.below}`);
+          } catch {
+            ctx.signal?.throwIfAborted();
+          }
+        }
+        const factsBetter = !!factCheck?.findings.length && remaining.length < factCheck.findings.length;
+        const factsWorse = !!factCheck && remaining.length > factCheck.findings.length;
+        const better = !factsWorse && (
+          qaScore(fixedQa) < qaScore(draftQa) ||
+          (qaScore(fixedQa) === qaScore(draftQa) && ((lintHitsBefore >= 2 && lintHits(fixed.below) < lintHitsBefore) || factsBetter)) ||
+          (factsBetter && qaScore(fixedQa) <= qaScore(draftQa) + 1)
+        );
         if (keepsZwnj && better && fixedQa.words >= TIER_WORDS[effectiveTier].min * 0.85) {
           draft = fixed;
           repair.accepted = true;
+          if (factCheck) factCheck.remaining = remaining;
         }
       }
     } catch (error) {
@@ -540,6 +608,14 @@ async function runCategoryContentInner(
     metaDescription: spell(draft!.metaDescription),
   };
   const qa = runQa({ ...qaBase, above: content.above, below: content.below, metaTitle: content.metaTitle, metaDescription: content.metaDescription });
+  if (factCheck?.ran) {
+    const left = factCheck.remaining;
+    qa.checks.push({
+      id: 'facts', level: left.length ? 'warn' : 'pass', label: 'هم‌خوانی با کاتالوگ (بازبین دوم)',
+      detail: left.length ? left.map(f => `«${f.quote.slice(0, 80)}»: ${f.problem.slice(0, 120)}`).join(' | ') : (factCheck.findings.length ? `${factCheck.findings.length} ایراد پیدا و اصلاح شد` : undefined),
+    });
+    if (left.length && qa.level === 'pass') qa.level = 'warn';
+  }
   const qaDraftFull = runQa({ ...qaBase, above: content.above, below: draft!.below, metaTitle: content.metaTitle, metaDescription: content.metaDescription });
 
   const usage = usageSummary(ctx.runId) as { knownCostUsd: number; promptTokens: number; completionTokens: number; attempts: number } | undefined;
@@ -549,8 +625,9 @@ async function runCategoryContentInner(
     ...(req.label ? { label: req.label } : {}),
     promptVersion: PROMPT_VERSION,
     category: { id: cat.id, name: cat.name, path, level: cat.level, tier: effectiveTier, productCount, url: products.live?.link ?? null, flags: cat.flags },
-    models: { brief: briefModel, draft: draftModel, humanize: humanized.applied, lengthScale: scale, naturalDraft, ...(humanizerWriter ? { humanizerWriter } : {}), ...(humanized.applied ? { humanizerGuards: guardMode, humanizerQuality } : {}) },
-    data: { productSample: products.names.length, brands: products.brands, specs: products.specs, ...(products.error ? { siteError: products.error } : {}) },
+    models: { brief: briefModel, draft: draftModel, humanize: humanized.applied, lengthScale: scale, naturalDraft, catalogFacts, ...(humanizerWriter ? { humanizerWriter } : {}), ...(humanized.applied ? { humanizerGuards: guardMode, humanizerQuality } : {}) },
+    data: { productSample: products.names.length, productsRead: allNames.length, brands: products.brands, specs: products.specs, ...(catalog ? { catalog } : {}), ...(products.error ? { siteError: products.error } : {}) },
+    ...(factCheck ? { factCheck } : {}),
     brief: cleanBrief,
     content,
     draftBelow: draft!.below,

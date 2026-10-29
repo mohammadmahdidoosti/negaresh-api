@@ -4,7 +4,7 @@
  */
 import type { Tier } from './taxonomy';
 
-export const PROMPT_VERSION = 'content-v1.7';
+export const PROMPT_VERSION = 'content-v1.8';
 
 export interface BriefInput {
   category: {
@@ -20,7 +20,14 @@ export interface BriefInput {
   l2Profile: unknown;
   siblings: string[];
   children: string[];
-  products: { sample: string[]; brands: Array<{ brand: string; count: number }>; specs: Record<string, string[]>; note?: string };
+  products: {
+    sample: string[];
+    brands: Array<{ brand: string; count: number }>;
+    specs: Record<string, string[]>;
+    /** Counted fact sheet over (almost) every product: subcategories, families with their own sizes/values. */
+    catalog?: string;
+    note?: string;
+  };
 }
 
 export interface Brief {
@@ -50,8 +57,8 @@ export function briefMessages(input: BriefInput) {
 1. نام دسته همان کلمهٔ کلیدی است که در بازار جستجو می‌شود؛ آن را تغییر نده و اصلاح نکن. اگر نام برای خواننده نامفهوم است یا اصطلاح بازار است (مثل PU، N.O، 2-2، «طرح رکسروت»)، در term_explanation با کمک مسیر دسته و نام محصولات توضیح بده که منظور چیست. اگر نام روشن است، term_explanation خالی بماند.
 2. زاویهٔ صفحه (angle) را طوری انتخاب کن که با دسته‌های هم‌سطح (siblings) و والد رقابت نکند: صفحهٔ برندی ← معرفی محصولات همان برند در این نوع؛ صفحهٔ نوع کلی ← انتخاب و مقایسهٔ انواع؛ صفحهٔ سایز/مدل/ظرفیت ← مشخصات و کاربرد همان مدل.
 3. اگر پروفایل L2 داده شده و این صفحه خودِ همان L2 است، از تیترهای آن استفاده کن و بهترشان کن. اگر این صفحه زیرمجموعهٔ عمیق‌تر است، تیترها را مخصوص همین صفحه بنویس؛ کپی کردن تیترهای والد ممنوع است. هیچ تیتری «[کلمه کلیدی]» یا قالب عمومی نباشد.
-4. بریف را فشرده نگه دار: حداکثر ۱۲ مورد در facts، ۵ برند، و جمله‌های کوتاه. facts فقط چیزهایی است که مستقیماً از نام محصولات برمی‌آید (برند، سایز، ظرفیت، ولتاژ، جریان، مدل، نوع، جنس). evidence باید عیناً نام یکی از محصولات باشد. بازه‌ها را از products.specs بساز (مثلاً «جریان نامی موجود: ۹ تا ۹۵ آمپر»). اگر دادهٔ محصول نیست، facts خالی بماند.
-5. brands فقط از products.brands یا نام محصولات. «طرح X» یعنی هم‌اندازه با برند X، نه کالای اصل؛ آن را به‌صورت «طرح X» ثبت کن.
+4. بریف را فشرده نگه دار: حداکثر ۱۲ مورد در facts، ۵ برند (برای هاب تا ۸)، و جمله‌های کوتاه. facts فقط چیزهایی است که مستقیماً از دادهٔ محصولات برمی‌آید (برند، سایز، ظرفیت، ولتاژ، جریان، مدل، سری، نوع، جنس). اگر products.catalog هست، مرجع اصلی همان است: از همهٔ محصولات دسته شمرده شده و برای هر خانواده سایزها و مقدارهای خودش را دارد؛ facts را از آن بساز و هر واقعیت را به خانوادهٔ درستش نسبت بده (مثلاً «سری T6EC: سایزهای 42+10 تا …»). evidence عیناً نام یک محصول، یا «کاتالوگ: » و نام دقیق خانواده/زیردسته در کاتالوگ. اگر دادهٔ محصول نیست، facts خالی بماند.
+5. brands فقط از products.brands، کاتالوگ یا نام محصولات؛ به ترتیب سهم در دسته. تیترها و زاویه باید خانواده‌ها و زیردسته‌های اصلی کاتالوگ را به نسبت سهمشان پوشش دهند، نه فقط یک برند یا یک خانواده. «طرح X» یعنی هم‌اندازه با برند X، نه کالای اصل؛ آن را به‌صورت «طرح X» ثبت کن.
 6. check_before_order: ۳ تا ۵ مورد سازگاری یا انتخاب که مخصوص همین محصول است (مثلاً سایز رزوه، ولتاژ بوبین، تعداد پل). common_mistakes: ۲ تا ۳ اشتباه رایج واقعی در انتخاب یا نصب همین محصول.
 7. تعداد تیترها (بدون احتساب سؤالات متداول و بخش پایانی خرید): ${HEADINGS_BY_TIER[input.category.tier]}.
 8. هیچ عدد، استاندارد، گواهی یا ادعای عملکردی خارج از facts و پروفایل‌ها ننویس. استانداردهای پروفایل فقط «مرجع حوزه» هستند.
@@ -85,7 +92,21 @@ export interface DraftInput {
   words: { min: number; max: number };
   /** Write naturally from the start (the humanizer's checklist, in the draft prompt). */
   natural?: boolean;
+  /** Counted fact sheet of the category (catalog.ts); the reference for every series/size/brand statement. */
+  catalog?: string;
+  /** Market terms with definitions the store confirmed (glossary.ts). */
+  terms?: Array<{ term: string; definition: string }>;
 }
+
+/** Rules that bind the writer to the counted catalog and keep general knowledge careful. */
+export const CATALOG_RULES = `## دادهٔ کاتالوگ (مرجع اصلی)
+- «برگهٔ کاتالوگ» در پیام کاربر از همهٔ محصولات همین دسته شمرده شده است. هر جمله دربارهٔ سری، مدل، سایز، برند، تعداد یا تنوع باید دقیقاً با آن بخواند و هر سایز یا مقدار را فقط به خانوادهٔ خودش نسبت بده.
+- مقایسهٔ سری‌ها، مدل‌ها یا برندها («بزرگ‌تر»، «کوچک‌تر»، «بیشتر»، «مخصوص دبی بالا») فقط وقتی مجاز است که عددهای کاتالوگ همان را نشان دهد. اگر نشان نمی‌دهد، فقط تفاوت واقعی (سایزهای موجود) را بگو.
+- خانواده‌ها، زیردسته‌ها و برندهای اصلی را به نسبت سهمشان در کاتالوگ پوشش بده؛ صفحه را به یک برند یا یک خانواده محدود نکن.
+- جدول‌ها را از کاتالوگ بساز. اگر یک خانواده سایزهای زیادی دارد، بازه یا چند نمونهٔ واقعی بیاور، نه عدد ساختگی.
+- دانش عمومی فنی (کاربرد، طرز کار، نکتهٔ نصب و نگهداری) مجاز است، ولی محتاط و بدون عدد. هر ادعای فنی که از کاتالوگ یا دانش قطعی و عمومی این حوزه برنمی‌آید ننویس.
+- اگر «اصطلاحات تأییدشده» داده شده، تعریف همان اصطلاح را دقیقاً مطابق آن بنویس و تعریف دیگری نساز.
+- ادعای قطعی و مطلق ممنوع: «حذف می‌کند»، «از بین می‌برد»، «تضمین می‌کند»، «هرگز … نمی‌شود»، «کاملاً ایمن»، «صد درصد»، «بدون هیچ مشکلی». به جای آن واقع‌بینانه بنویس («احتمال نشتی را کم می‌کند»).`;
 
 /**
  * The humanizer's checklist (Humanizer v2.11.2 adaptation, linter and local quality rules), as drafting rules:
@@ -127,7 +148,7 @@ export function draftMessages(input: DraftInput) {
 - مفاهیم تخصصی و LSI را طبیعی و در جایگاه درست فنی در متن پخش کن (هر کدام یک یا دو بار؛ پر کردن کلمه ممنوع).
 
 ## صحت (بسیار مهم)
-- هیچ عدد، رتبه، استاندارد، گواهی، طول عمر، درصد یا ادعای عملکردی را به محصولات نسبت نده، مگر در «واقعیت‌های قابل استناد» آمده باشد. استانداردها را فقط به‌عنوان مرجع حوزه نام ببر، نه ادعای انطباق محصول.
+- هیچ عدد، رتبه، استاندارد، گواهی، طول عمر، درصد یا ادعای عملکردی را به محصولات نسبت نده، مگر در «واقعیت‌های قابل استناد» یا «برگهٔ کاتالوگ» آمده باشد. استانداردها را فقط به‌عنوان مرجع حوزه نام ببر، نه ادعای انطباق محصول.
 - فقط برندهای فهرست «برندها» را نام ببر. «طرح X» را کالای اصل برند X معرفی نکن.
 - قیمت، تخفیف، زمان ارسال، گارانتی یا وضعیت موجودی را ننویس (لیست محصولات این‌ها را نشان می‌دهد).
 - تجربهٔ شخصی نساز («ما در پروژه‌ها دیده‌ایم»). نکته‌ها را به‌صورت توصیهٔ فنی بنویس.
@@ -161,7 +182,7 @@ ${extraSections}
 ===END===
 
 ## نگارش فارسی
-نیم‌فاصلهٔ استاندارد (می‌شود، دسته‌بندی‌ها، کاربردی‌ترین)، اعداد فارسی در متن، و اصطلاح لاتین فقط وقتی در بازار رایج است، یک بار در پرانتز.${input.natural ? `\n\n${NATURAL_WRITING_RULES}` : ''}`;
+نیم‌فاصلهٔ استاندارد (می‌شود، دسته‌بندی‌ها، کاربردی‌ترین)، اعداد فارسی در متن، و اصطلاح لاتین فقط وقتی در بازار رایج است، یک بار در پرانتز.${input.catalog ? `\n\n${CATALOG_RULES}` : ''}${input.natural ? `\n\n${NATURAL_WRITING_RULES}` : ''}`;
 
   const user = {
     'کلمه کلیدی اصلی (نام دسته)': input.category.name,
@@ -183,6 +204,8 @@ ${extraSections}
     'اصطلاحات': input.brief.glossary,
     'سؤالات متداول': input.brief.faq,
     'مترادف‌ها': input.category.synonyms,
+    ...(input.catalog ? { 'برگهٔ کاتالوگ (شمارش از محصولات همین دسته؛ مرجع اصلی)': input.catalog } : {}),
+    ...(input.terms?.length ? { 'اصطلاحات تأییدشده (تعریف دقیقاً همین)': input.terms } : {}),
   };
   return [
     { role: 'system' as const, content: system },
@@ -217,6 +240,47 @@ export function repairMessages(name: string, draft: DraftSections, problems: str
     { role: 'system' as const, content: system },
     { role: 'user' as const, content: user },
   ];
+}
+
+export interface FactFinding {
+  quote: string;
+  problem: string;
+}
+
+/**
+ * A cheap second reader: compares the guide with the counted catalog and the confirmed terms and lists only clear
+ * contradictions or claims the data cannot support. Its findings go into the one repair call.
+ */
+export function factCheckMessages(input: { name: string; catalog: string; terms: Array<{ term: string; definition: string }>; text: string }) {
+  const system = `تو بازبین دقت فنی محتوای فروشگاه «کاروان صنعت» هستی. یک «برگهٔ کاتالوگ» (شمارش‌شده از همهٔ محصولات دسته «${input.name}»)، اصطلاحات تأییدشده و متن راهنمای صفحه به تو داده می‌شود.
+فقط این‌ها را پیدا کن:
+1. جمله‌ای که با کاتالوگ تناقض دارد: سایز یا مقداری که به خانواده/سری اشتباه نسبت داده شده، مقایسهٔ سری‌ها یا برندها که عددهای کاتالوگ خلافش را نشان می‌دهد، تعداد یا تنوعی که با کاتالوگ نمی‌خواند، جدولی که با متن خودش یا با کاتالوگ نمی‌خواند.
+2. تعریف یک اصطلاح تأییدشده که با تعریف داده‌شده فرق دارد.
+3. ادعای فنی مشخص و قطعی که نه از کاتالوگ برمی‌آید و نه دانش عمومی و قطعی این حوزه است (مثلاً عدد عملکرد، طول عمر، استاندارد یا گواهی برای محصول).
+دانش فنی عمومی و درست (طرز کار، کاربرد، نکتهٔ نصب) را ایراد نگیر. سلیقهٔ نگارشی، طول و سئو را ایراد نگیر. اگر مطمئن نیستی، ایراد نگیر.
+خروجی فقط یک آرایهٔ JSON (بدون توضیح و بدون \`\`\`): [{"quote": "عین بخشی از جملهٔ متن، حداکثر ۲۰ کلمه", "problem": "ایراد و شکل درست در یک جملهٔ کوتاه"}]. اگر ایرادی نیست: []`;
+  const user = `برگهٔ کاتالوگ:\n${input.catalog}\n\nاصطلاحات تأییدشده:\n${input.terms.map(t => `- ${t.term}: ${t.definition}`).join('\n') || '—'}\n\nمتن راهنما:\n${input.text}`;
+  return [
+    { role: 'system' as const, content: system },
+    { role: 'user' as const, content: user },
+  ];
+}
+
+export function parseFactFindings(raw: string): FactFinding[] {
+  const start = raw.indexOf('[');
+  const end = raw.lastIndexOf(']');
+  if (start < 0 || end <= start) return [];
+  try {
+    const arr = JSON.parse(raw.slice(start, end + 1)) as unknown;
+    if (!Array.isArray(arr)) return [];
+    return arr
+      .filter((x): x is FactFinding => !!x && typeof x === 'object' && typeof (x as FactFinding).quote === 'string' && typeof (x as FactFinding).problem === 'string')
+      .map(x => ({ quote: x.quote.trim().slice(0, 300), problem: x.problem.trim().slice(0, 300) }))
+      .filter(x => x.quote && x.problem)
+      .slice(0, 8);
+  } catch {
+    return [];
+  }
 }
 
 /** Put back the ZWNJs a model dropped («میرود» → «می‌رود»). Nothing else may change. */

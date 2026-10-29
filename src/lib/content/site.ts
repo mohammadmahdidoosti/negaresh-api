@@ -4,6 +4,7 @@
  *   - /wp-json/wc/store/v1/products?category=…   (product names and stock)
  * Nothing is ever written to the site from here.
  */
+import { buildCatalog, decodeName, type Catalog, type CatalogProduct } from './catalog';
 import { norm } from './taxonomy';
 
 /**
@@ -27,10 +28,30 @@ export interface ProductData {
   live: LiveCategory | null;
   total: number;
   names: string[]; // representative sample, de-duplicated by product family
+  /** Every product name read (evidence for QA; not stored with results). */
+  allNames?: string[];
   inStockRatio: number | null;
   brands: Array<{ brand: string; count: number }>;
   specs: Record<string, string[]>; // unit -> distinct observed values
+  /** Counted fact sheet over (almost) every product of the category; see catalog.ts. */
+  catalog?: Catalog;
   error?: string;
+}
+
+/** Pages of 100 products read per category (CONTENT_MAX_PRODUCT_PAGES, default 40 = 4,000 products). */
+const maxPages = () => {
+  const n = Number(process.env.CONTENT_MAX_PRODUCT_PAGES);
+  return Number.isFinite(n) && n >= 2 && n <= 200 ? Math.round(n) : 40;
+};
+/** Parallel requests to the store while reading one category. */
+const STORE_CONCURRENCY = 3;
+
+/** Which pages to read: all of them, or an even spread over the whole category when there are more than `max`. */
+export function pagesToRead(totalPages: number, max: number): number[] {
+  if (totalPages <= max) return Array.from({ length: totalPages }, (_, i) => i + 1);
+  const out = new Set<number>([1]);
+  for (let i = 1; i < max; i++) out.add(1 + Math.round((i * (totalPages - 1)) / (max - 1)));
+  return [...out].sort((a, b) => a - b);
 }
 
 const cache = new Map<string, { at: number; value: ProductData }>();
@@ -140,29 +161,34 @@ export async function fetchProductData(slug: string, knownBrands: string[], sign
     if (!live) {
       value = { live: null, total: 0, names: [], inStockRatio: null, brands: [], specs: {}, error: 'دسته در سایت پیدا نشد' };
     } else {
-      const names: string[] = [];
-      let inStock = 0;
-      let total = live.count;
-      for (let page = 1; page <= 2; page++) {
-        // _fields keeps the response ~15× smaller than full product objects
-        const { data, headers } = await getJson<Array<{ name: string; is_in_stock: boolean }>>(
-          `/wp-json/wc/store/v1/products?category=${live.wpId}&per_page=100&page=${page}&_fields=name,is_in_stock`,
-          signal,
-        );
-        total = Number(headers.get('x-wp-total')) || total;
-        for (const p of data) {
-          names.push(p.name.replace(/&#8211;|&amp;/g, m => (m === '&amp;' ? '&' : '–')));
-          if (p.is_in_stock) inStock += 1;
-        }
-        if (data.length < 100) break;
+      type Row = { name: string; is_in_stock: boolean; categories?: Array<{ name: string }> };
+      const page = (n: number) =>
+        getJson<Row[]>(`/wp-json/wc/store/v1/products?category=${live.wpId}&per_page=100&page=${n}&_fields=name,is_in_stock,categories`, signal);
+      const first = await page(1);
+      const total = Number(first.headers.get('x-wp-total')) || live.count;
+      const totalPages = Number(first.headers.get('x-wp-totalpages')) || Math.ceil(total / 100) || 1;
+      const rows: Row[] = [...first.data];
+      const rest = pagesToRead(totalPages, maxPages()).filter(n => n !== 1);
+      for (let i = 0; i < rest.length; i += STORE_CONCURRENCY) {
+        const batch = await Promise.all(rest.slice(i, i + STORE_CONCURRENCY).map(page));
+        for (const b of batch) rows.push(...b.data);
       }
+      const products: CatalogProduct[] = rows.map(r => ({
+        name: decodeName(r.name),
+        inStock: !!r.is_in_stock,
+        categories: (r.categories ?? []).map(c => decodeName(c.name)),
+      }));
+      const names = products.map(p => p.name);
+      const inStock = products.filter(p => p.inStock).length;
       const facts = extractFacts(names, knownBrands);
       value = {
         live,
         total,
         names: representative(names, 80),
+        allNames: names,
         inStockRatio: names.length ? Number((inStock / names.length).toFixed(2)) : null,
         ...facts,
+        catalog: buildCatalog(products, { categoryName: live.name, total, maxFamilies: total > 600 ? 25 : 18 }),
       };
     }
   } catch (error) {

@@ -3,6 +3,7 @@
  * so a reviewer sees exactly why a page is flagged.
  */
 import { countWords } from '@/lib/text';
+import { wrongTermUses } from './glossary';
 import { norm, TIER_WORDS, type Tier } from './taxonomy';
 
 export type QaLevel = 'pass' | 'warn' | 'fail';
@@ -28,6 +29,10 @@ function specNumbers(text: string): string[] {
   }
   return out;
 }
+
+/** Absolute or guaranteed outcomes. «کاملاً» alone is fine («کاملاً متفاوت»); only with a safety/quality word. */
+export const ABSOLUTE =
+  /(?<![\p{L}])((?:نشتی|نشت|خرابی|گرفتگی|رسوب|خوردگی|زنگ[‌ ]?زدگی|خطر|صدا|لرزش|افت\s+فشار)[^.،؛\n]{0,25}?(?:حذف|برطرف)\s*می[‌ ]?(?:کند|شود)|(?:نشتی|نشت|خرابی|گرفتگی|رسوب|خوردگی|خطر)[^.،؛\n]{0,25}?از\s*بین\s*می[‌ ]?(?:برد|رود)|تضمین\s*می[‌ ]?(?:کند|شود)|هرگز\s+[^.،؛\n]{0,30}?نمی[‌ ]?\S+|کاملاً\s+(?:ایمن|بی[‌ ]?خطر|مطمئن|بدون\s+نشتی|آب[‌ ]?بند)|بدون\s+هیچ\s+(?:مشکل|نشتی|خطر)|هیچ[‌ ]?گاه\s+[^.،؛\n]{0,30}?نمی[‌ ]?\S+)/gu;
 
 export interface QaInput {
   name: string;
@@ -100,6 +105,11 @@ export function runQa(q: QaInput): { level: QaLevel; checks: QaCheck[]; words: n
   add('brands', foreign.length ? 'fail' : 'pass', 'فقط برندهای موجود در همین دسته', foreign.length ? foreign.join('، ') : undefined);
   const hype = all.match(/(تضمین|بهترین|بزرگ[‌ ]?ترین|صد درصد|۱۰۰٪|100%|بی[‌ ]?نظیر|اورجینال)/g);
   add('hype', hype ? 'warn' : 'pass', 'بدون ادعای تبلیغاتی و تضمین', hype ? [...new Set(hype)].join('، ') : undefined);
+  // absolute claims («نشتی را حذف می‌کند»، «هرگز خراب نمی‌شود»): an easy-to-spot sign of the writer guessing
+  const absolute = [...new Set(all.match(ABSOLUTE) ?? [])];
+  add('absolute', absolute.length ? 'warn' : 'pass', 'بدون ادعای قطعی و مطلق', absolute.length ? absolute.slice(0, 6).join('، ') : undefined);
+  const wrongTerms = wrongTermUses(`${q.above}\n${q.below}`);
+  add('terms', wrongTerms.length ? 'warn' : 'pass', 'تعریف اصطلاحات تأییدشده درست است', wrongTerms.length ? wrongTerms.map(w => `${w.term}: «${w.sentence.slice(0, 90)}»`).join(' | ') : undefined);
   const placeholders = (all.match(/\[\[[^\]]+\]\]/g) ?? []).length;
   add('placeholders', placeholders === 0 ? 'pass' : placeholders <= 2 ? 'warn' : 'fail', 'جای خالی نیازمند منبع', placeholders ? `${placeholders} مورد` : undefined);
   add('site-data', q.siteDataAvailable ? 'pass' : 'warn', 'دادهٔ زندهٔ محصولات از سایت');
