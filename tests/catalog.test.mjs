@@ -112,3 +112,17 @@ test("QA warns on absolute claims and wrong term definitions", () => {
   assert.equal(q.checks.find(c => c.id === "absolute").level, "warn");
   assert.equal(q.checks.find(c => c.id === "terms").level, "warn");
 });
+
+test("«پرسی، کوپلی و جوشی» is a list of kinds, not a wrong definition", () => {
+  assert.equal(wrongTermUses("- اتصالات پرسی، کوپلی و جوشی هر سیستم را فقط با لوله سازگار همان سیستم نصب کنید.").length, 0);
+  assert.equal(wrongTermUses("کوپلی و جوش لب‌به‌لب هر دو رایج‌اند").length, 1);
+});
+
+test("confirmed glossary: electrofusion «کوپلر» is not «کوپلی»; «مغزی» with an inner thread is flagged", () => {
+  assert.equal(wrongTermUses("سه راه الکتروفیوژن دوسرکوپلر با جوش برقی نصب می‌شود.").length, 0);
+  assert.equal(wrongTermUses("سه راهی مغزی که رزوه داخلی دارد برای اتصال شیر است.").length, 1);
+  assert.equal(wrongTermUses("مغزی دو سر روپیچ دارد.").length, 0);
+  const names = termsFor("زانو دو سر کوپله پلیکا، بوشن فلزی، کوپلینگ").map(t => t.term);
+  assert.ok(names.includes("کوپله (در اتصالات پلیکا)") && names.includes("پلیکا") && names.includes("بوشن فلزی"));
+  assert.ok(!names.includes("کوپلی"));
+});

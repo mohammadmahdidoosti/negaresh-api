@@ -453,7 +453,16 @@ async function runCategoryContentInner(
     tier: effectiveTier,
     evidence,
     // a brand that is part of the category name or path is allowed by definition (e.g. «کلید فیوز زاویر»)
-    allowedBrands: [...brands.map(b => b.name), ...products.brands.map(b => b.brand), ...allKnownBrands().filter(b => norm(path).includes(norm(b)))],
+    // plus every store brand that occurs in this category's product names or subcategory names («لوله نیوفیت و پکس»)
+    allowedBrands: [
+      ...brands.map(b => b.name),
+      ...products.brands.map(b => b.brand),
+      ...allKnownBrands().filter(b => norm(path).includes(norm(b))),
+      ...(() => {
+        const local = norm([...allNames, ...childrenOf(cat).map(c => c.name), ...(products.catalog?.subcategories.map(s => s.name) ?? [])].join('\n'));
+        return allKnownBrands().filter(b => norm(b).length >= 3 && local.includes(norm(b)));
+      })(),
+    ],
     knownBrands: allKnownBrands(),
     siteDataAvailable: !products.error && products.names.length > 0,
   };
