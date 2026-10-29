@@ -135,3 +135,11 @@ test("long value lists show the count, the full range and a spread", async () =>
   assert.ok(out.includes("، 40"));
   assert.equal(valueList(["1", "2"], 14), "1، 2");
 });
+
+test("the brand-spelling fix leaves real words alone («زانو» is not «زاکو»)", async () => {
+  const { fixNameSpelling } = await jiti.import("../src/lib/content/pipeline.ts");
+  const text = "در کاروان صنعت زانو از برندهای زاکو و پیمتاش موجود است.";
+  assert.equal(fixNameSpelling(text, ["زاکو", "پیمتاش"], ["زانو", "گالوانیزه"]), text);
+  // a real misspelling is still fixed
+  assert.equal(fixNameSpelling("برند وینیکو", ["ونیکو"], ["زانو"]), "برند ونیکو");
+});

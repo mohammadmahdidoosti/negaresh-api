@@ -201,8 +201,11 @@ function editDistance(a: string, b: string): number {
  * A near variant («وینیکو» for «ونیکو») next to «برند» or another store brand is replaced by the store spelling.
  * Names shorter than 4 letters are left alone.
  */
-export function fixNameSpelling(text: string, names: string[]): string {
+export function fixNameSpelling(text: string, names: string[], protect: Iterable<string> = []): string {
   const flat = (t: string) => t.replace(/\u200c/g, ' ');
+  // words of the category name, its path and the product names are real words, never misspellings of a brand
+  // («زانو» is one letter away from the brand «زاکو»)
+  const real = new Set([...protect].map(w => flat(w).trim()).filter(Boolean));
   let out = text;
   for (const name of [...new Set(names)].filter(n => flat(n).replace(/\s/g, '').length >= 4)) {
     const n = flat(name).split(/\s+/).length;
@@ -215,7 +218,7 @@ export function fixNameSpelling(text: string, names: string[]): string {
       const core = span.slice(lead.length, span.length - tail.length);
       // same first letter and a brand context (the word «برند» or another store brand nearby):
       // avoids turning ordinary words into brands
-      if (!core || core[0] !== name[0]) continue;
+      if (!core || core[0] !== name[0] || real.has(flat(core))) continue;
       const around = words.slice(Math.max(0, i - 12), i + n * 2 + 12).join('');
       if (!around.includes('برند') && !names.some(o => o !== name && around.includes(o))) continue;
       const d = editDistance(flat(core), flat(name));
@@ -610,7 +613,10 @@ async function runCategoryContentInner(
   step('qa', 'کنترل کیفیت خودکار');
   // brands of this category as the store spells them (product names), applied to every section
   const storeNames = [...products.brands.map(b => b.brand), ...allKnownBrands().filter(b => products.names.some(n => n.includes(b)))];
-  const spell = (t: string) => fixNameSpelling(t, storeNames);
+  const realWords = new Set(
+    [cat.name, path, cat.synonyms, ...allNames.slice(0, 5000)].join(' ').split(/[\s،,.;:()«»"'/|\-–+*×]+/).filter(w => w.length >= 2),
+  );
+  const spell = (t: string) => fixNameSpelling(t, storeNames, realWords);
   const content: DraftSections = {
     above: spell(draft!.above),
     below: spell(finalBelow),
