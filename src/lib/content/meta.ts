@@ -31,8 +31,15 @@ const clean = (s: string) => s.replace(/\s+/g, ' ').replace(/^["«']+|["»']+$/g
  */
 export const suffixOn = () => process.env.CONTENT_META_SITE_SUFFIX === 'on';
 
+/** Models add the site name anyway; without the suffix setting it only takes room from the keyword. */
+export function stripSiteName(t: string): string {
+  return suffixOn() ? t : t.replace(/\s*[|\-–—:،]\s*(?:فروشگاه\s+)?کاروان[\u200c ]?صنعت\s*$/u, '').trim();
+}
+
 export function titleProblems(t: string, name: string): string[] {
   const out: string[] = [];
+  // the name alone says nothing the H1 does not; something must follow it
+  if (nk(t) === nk(name) || nk(t.replace(/[|\-–—:،\s]+$/u, '')) === nk(name)) out.push('فقط نام دسته');
   if (t.length > TITLE_MAX) out.push(`بیش از ${TITLE_MAX} نویسه`);
   if (t.length < TITLE_MIN) out.push(`کمتر از ${TITLE_MIN} نویسه`);
   if (!nk(t).startsWith(nk(name))) out.push('با نام دسته شروع نمی‌شود');
@@ -124,6 +131,7 @@ export function chooseMeta(input: { titles: string[]; descriptions: string[]; na
   const tTerms = input.titleTerms?.length ? input.titleTerms : input.brands;
   const titles = input.titles
     .map(clean)
+    .map(stripSiteName)
     .map(t => (t.length <= TITLE_MAX ? withSuffix(t) : t))
     .filter(t => titleProblems(t, input.name).length === 0)
     .sort((a, b) => titleScore(b, tTerms) - titleScore(a, tTerms));

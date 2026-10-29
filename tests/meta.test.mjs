@@ -72,3 +72,14 @@ test("the fallback description never ends mid-phrase", () => {
   assert.ok(d.endsWith("."));
   assert.ok(!d.endsWith("در همین."));
 });
+
+test("the site name a model adds is removed, and a bare name is not a title", () => {
+  const c = chooseMeta({
+    titles: ["تجهیزات تابلو برق و برق صنعتی | کاروان صنعت", "تجهیزات تابلو برق و برق صنعتی | خرید کلید، کنتاکتور و فیوز - کاروان صنعت"],
+    descriptions: [],
+    name: "تجهیزات تابلو برق و برق صنعتی",
+    brands: ["اتصال"],
+  });
+  assert.equal(c.title, "تجهیزات تابلو برق و برق صنعتی | خرید کلید، کنتاکتور و فیوز");
+  assert.ok(titleProblems("زانو", "زانو").includes("فقط نام دسته"));
+});
