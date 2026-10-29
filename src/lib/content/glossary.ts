@@ -144,7 +144,9 @@ export function wrongTermUses(text: string): Array<{ term: string; sentence: str
       const w = clause.match(t.wrong);
       // «بدون جوش»، «جوش ندارد»، «نیازی به حرارت نیست» say the right thing
       const near = w ? clause.slice(Math.max(0, (w.index ?? 0) - 20), (w.index ?? 0) + w[0].length + 25) : '';
-      if (w && !/(بدون|نه\s|نیازی|ندارد|نیست|نمی|نخواهد)/.test(near)) {
+      // «پوشفیت بهتر است یا چسبی؟» compares two kinds; it does not describe the term
+      const comparison = w ? /(?:^|\s)(?:یا|و)\s*$/.test(clause.slice(0, w.index)) : false;
+      if (w && !comparison && !/(بدون|نه\s|نیازی|ندارد|نیست|نمی|نخواهد)/.test(near)) {
         out.push({ term: t.term, sentence: s.slice(0, 200), note: t.wrongNote ?? '' });
       }
     }

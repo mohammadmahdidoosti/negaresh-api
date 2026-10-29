@@ -143,3 +143,8 @@ test("the brand-spelling fix leaves real words alone («زانو» is not «زا
   // a real misspelling is still fixed
   assert.equal(fixNameSpelling("برند وینیکو", ["ونیکو"], ["زانو"]), "برند ونیکو");
 });
+
+test("a comparison of two kinds is not a wrong definition", () => {
+  assert.equal(wrongTermUses("### زانو پوشفیت بهتر است یا چسبی؟").length, 0);
+  assert.equal(wrongTermUses("پوشفیت با چسب مخصوص آب‌بندی می‌شود.").length, 1);
+});
