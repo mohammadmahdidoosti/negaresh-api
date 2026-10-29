@@ -51,15 +51,19 @@ export async function wpCheck(termId?: number) {
     passwordHasQuotes: /["']/.test(rawPass),
     passwordGroups: rawPass.trim().split(/\s+/).length,
   };
+  // the site firewall blocks /users/me (403 HTML page); a category read in edit context proves the password instead
+  const probe = await wpGet<Record<string, unknown>>(`/wp-json/wp/v2/product_cat/${termId ?? 1}?context=edit`);
+  const authed = probe.status === 200;
   const out: Record<string, unknown> = {
-    ok: me.status === 200,
+    ok: me.status === 200 || authed,
+    authenticated: authed,
     configured: true,
     shape,
     user: me.status === 200 ? { id: me.data?.id, name: me.data?.name, slug: me.data?.slug, roles: me.data?.roles } : null,
     canEditCategories: !!(caps.manage_product_terms || caps.edit_product_terms || caps.manage_categories),
     ...(me.status !== 200 ? { error: `HTTP ${me.status}: ${me.error ?? ''}` } : {}),
   };
-  if (me.status !== 200) {
+  if (!authed) {
     // which layer refuses: WordPress answers in JSON, a firewall/web server with an HTML page
     const probes: Record<string, unknown> = {};
     for (const [k, path] of [
@@ -72,9 +76,11 @@ export async function wpCheck(termId?: number) {
     }
     out.probes = probes;
   }
-  if (termId && me.status === 200) {
-    const term = await wpGet<Record<string, unknown>>(`/wp-json/wp/v2/product_cat/${termId}?context=edit`);
+  if (termId && authed) {
+    const term = probe;
     const d = term.data ?? {};
+    const wc = await wpGet<Record<string, unknown>>(`/wp-json/wc/v3/products/categories/${termId}`);
+    out.wcCategoryKeys = wc.data ? Object.keys(wc.data) : [];
     out.term = {
       status: term.status,
       id: d.id,
