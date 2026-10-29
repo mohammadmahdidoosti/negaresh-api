@@ -39,9 +39,22 @@ export async function wpCheck(termId?: number) {
   if (!wpConfigured()) return { ok: false, configured: false, error: 'WP_USER / WP_APP_PASSWORD تنظیم نشده‌اند.' };
   const me = await wpGet<{ id: number; name: string; slug: string; roles?: string[]; capabilities?: Record<string, boolean> }>('/wp-json/wp/v2/users/me?context=edit');
   const caps = me.data?.capabilities ?? {};
+  // shape only, never the values: helps tell a wrong user from a mangled password
+  const rawUser = process.env.WP_USER ?? '';
+  const rawPass = process.env.WP_APP_PASSWORD ?? '';
+  const bare = rawPass.replace(/\s+/g, '');
+  const shape = {
+    userIsEmail: /@/.test(rawUser),
+    userHasOuterSpaceOrQuotes: rawUser !== rawUser.trim() || /^["']|["']$/.test(rawUser.trim()),
+    passwordLength: bare.length,
+    passwordLooksLikeAppPassword: /^[A-Za-z0-9]{24}$/.test(bare),
+    passwordHasQuotes: /["']/.test(rawPass),
+    passwordGroups: rawPass.trim().split(/\s+/).length,
+  };
   const out: Record<string, unknown> = {
     ok: me.status === 200,
     configured: true,
+    shape,
     user: me.status === 200 ? { id: me.data?.id, name: me.data?.name, slug: me.data?.slug, roles: me.data?.roles } : null,
     canEditCategories: !!(caps.manage_product_terms || caps.edit_product_terms || caps.manage_categories),
     ...(me.status !== 200 ? { error: `HTTP ${me.status}: ${me.error ?? ''}` } : {}),
@@ -55,7 +68,7 @@ export async function wpCheck(termId?: number) {
       ['publicTerm', `/wp-json/wp/v2/product_cat/${termId ?? 1}`],
     ] as const) {
       const r = await wpGet<Record<string, unknown>>(path);
-      probes[k] = { status: r.status, json: r.data !== null, error: r.error ? r.error.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').slice(0, 160) : undefined };
+      probes[k] = { status: r.status, json: r.data !== null, code: (r.data as { code?: string } | null)?.code, error: r.error ? r.error.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').slice(0, 160) : undefined };
     }
     out.probes = probes;
   }
