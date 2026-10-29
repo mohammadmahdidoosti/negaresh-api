@@ -4,6 +4,7 @@
  */
 import { countWords } from '@/lib/text';
 import { wrongTermUses } from './glossary';
+import { META_BANNED } from './meta';
 import { norm, TIER_WORDS, type Tier } from './taxonomy';
 
 export type QaLevel = 'pass' | 'warn' | 'fail';
@@ -158,9 +159,11 @@ export function runQa(q: QaInput): { level: QaLevel; checks: QaCheck[]; words: n
 
   // 5. meta
   const t = q.metaTitle.length;
-  add('meta-title', t >= 25 && t <= 65 ? 'pass' : 'warn', 'طول عنوان سئو ۲۵ تا ۶۰ نویسه', `${t} نویسه`);
+  add('meta-title', t >= 25 && t <= 60 ? 'pass' : 'warn', 'طول عنوان سئو ۲۵ تا ۶۰ نویسه', `${t} نویسه`);
   const d = q.metaDescription.length;
-  add('meta-desc', d >= 100 && d <= 165 ? 'pass' : 'warn', 'طول توضیح متا ۱۲۰ تا ۱۵۵ نویسه', `${d} نویسه`);
+  add('meta-desc', d >= 120 && d <= 155 ? 'pass' : 'warn', 'طول توضیح متا ۱۲۰ تا ۱۵۵ نویسه', `${d} نویسه`);
+  const banned = `${q.metaTitle} ${q.metaDescription}`.match(META_BANNED);
+  add('meta-words', banned ? 'warn' : 'pass', 'عنوان و توضیح متا بدون قیمت، تخفیف و «بهترین»', banned?.[0]);
 
   const level: QaLevel = checks.some(c => c.level === 'fail') ? 'fail' : checks.some(c => c.level === 'warn') ? 'warn' : 'pass';
   return { level, checks, words };

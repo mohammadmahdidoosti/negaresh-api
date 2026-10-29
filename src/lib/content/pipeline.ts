@@ -12,6 +12,7 @@ import { countWords, transformUnprotected } from '@/lib/text';
 import { CONTENT_TYPES, QUALITY_LEVELS, VOICES, type ContentType, type QualityLevel, type Voice } from '@/lib/types';
 import { usageByStage, usageSummary } from '@/lib/usage-ledger';
 import { catalogText } from './catalog';
+import { chooseMeta, metaMessages, parseMetaCandidates, type MetaChoice } from './meta';
 import { termsFor, VERIFIED_TERMS } from './glossary';
 import { briefMessages, draftMessages, factCheckMessages, formatDraft, normalizeHeadings, parseBrief, parseDraft, parseFactFindings, PROMPT_VERSION, repairMessages, zwnjMessages, type Brief, type DraftSections, type FactFinding } from './prompts';
 import { repeatedSentences, runQa, type QaCheck, type QaLevel } from './qa';
@@ -76,6 +77,8 @@ export interface ContentResult {
   data: { productSample: number; productsRead?: number; brands: Array<{ brand: string; count: number }>; specs: Record<string, string[]>; catalog?: string; siteError?: string };
   /** Draft compared with the catalog by a second reader; findings go into the repair call. */
   factCheck?: { ran: boolean; findings: FactFinding[]; remaining: FactFinding[] };
+  /** How the SEO title/description were chosen (separate meta step). */
+  meta?: Omit<MetaChoice, 'title' | 'description'> & { ran: boolean };
   brief: Brief & { droppedFacts: number };
   content: DraftSections;
   draftBelow: string;
@@ -654,6 +657,36 @@ async function runCategoryContentInner(
     metaTitle: spell(draft!.metaTitle),
     metaDescription: spell(draft!.metaDescription),
   };
+  // ---------- 5a. SEO title and description in their own step (candidates checked by code, pattern fallback) ----------
+  let meta: ContentResult['meta'];
+  if (process.env.CONTENT_META_STEP !== 'off') {
+    step('meta', 'عنوان سئو و توضیح متا');
+    const metaBrands = products.brands.slice(0, 4).map(b => b.brand);
+    let candidates = { titles: [] as string[], descriptions: [] as string[] };
+    try {
+      const raw = await generateText(metaMessages({
+        name: cat.name,
+        path,
+        above: content.above,
+        brands: metaBrands,
+        facts: facts.slice(0, 8).map(f => f.fact),
+        families: products.catalog?.families.slice(0, 6).map(f => `${f.family} (${f.count})`) ?? [],
+      }), { model: briefModel, maxTokens: 2500, temperature: 0.7, stage: 'content-meta', useFallback: false, ...caps() }, ctx);
+      candidates = parseMetaCandidates(raw);
+    } catch {
+      ctx.signal?.throwIfAborted();
+    }
+    const choice = chooseMeta({
+      titles: [...candidates.titles, content.metaTitle],
+      descriptions: [...candidates.descriptions, content.metaDescription],
+      name: cat.name,
+      brands: metaBrands,
+      fact: facts[0]?.fact,
+    });
+    content.metaTitle = spell(choice.title);
+    content.metaDescription = spell(choice.description);
+    meta = { ran: true, source: choice.source, candidates: choice.candidates };
+  }
   const qa = runQa({ ...qaBase, above: content.above, below: content.below, metaTitle: content.metaTitle, metaDescription: content.metaDescription });
   if (factCheck?.ran) {
     const left = factCheck.remaining;
@@ -675,6 +708,7 @@ async function runCategoryContentInner(
     models: { brief: briefModel, draft: draftModel, humanize: humanized.applied, lengthScale: scale, naturalDraft, catalogFacts, freeLength, ...(humanizerWriter ? { humanizerWriter } : {}), ...(humanized.applied ? { humanizerGuards: guardMode, humanizerQuality } : {}) },
     data: { productSample: products.names.length, productsRead: allNames.length, brands: products.brands, specs: products.specs, ...(catalog ? { catalog } : {}), ...(products.error ? { siteError: products.error } : {}) },
     ...(factCheck ? { factCheck } : {}),
+    ...(meta ? { meta } : {}),
     brief: cleanBrief,
     content,
     draftBelow: draft!.below,
