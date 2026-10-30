@@ -12,6 +12,7 @@ import { countWords, transformUnprotected } from '@/lib/text';
 import { CONTENT_TYPES, QUALITY_LEVELS, VOICES, type ContentType, type QualityLevel, type Voice } from '@/lib/types';
 import { usageByStage, usageSummary } from '@/lib/usage-ledger';
 import { catalogText } from './catalog';
+import { fingerprintOf, type CatalogFingerprint } from './watch';
 import { chooseMeta, metaMessages, parseMetaCandidates, type MetaChoice } from './meta';
 import { termsFor, VERIFIED_TERMS } from './glossary';
 import { briefMessages, draftMessages, factCheckMessages, formatDraft, normalizeHeadings, parseBrief, parseDraft, parseFactFindings, PROMPT_VERSION, repairMessages, zwnjMessages, type Brief, type DraftSections, type FactFinding } from './prompts';
@@ -74,7 +75,7 @@ export interface ContentResult {
   promptVersion: string;
   category: { id: string; name: string; path: string; level: number; tier: Tier; productCount: number; url: string | null; flags: string };
   models: { brief: string; draft: string; humanize: boolean; lengthScale?: number; humanizerWriter?: string; humanizerGuards?: string; humanizerQuality?: string; naturalDraft?: boolean; catalogFacts?: boolean; freeLength?: boolean };
-  data: { productSample: number; productsRead?: number; brands: Array<{ brand: string; count: number }>; specs: Record<string, string[]>; catalog?: string; siteError?: string };
+  data: { productSample: number; productsRead?: number; brands: Array<{ brand: string; count: number }>; specs: Record<string, string[]>; catalog?: string; fingerprint?: CatalogFingerprint; siteError?: string };
   /** Draft compared with the catalog by a second reader; findings go into the repair call. */
   factCheck?: { ran: boolean; findings: FactFinding[]; remaining: FactFinding[] };
   /** How the SEO title/description were chosen (separate meta step). */
@@ -711,7 +712,7 @@ async function runCategoryContentInner(
     promptVersion: PROMPT_VERSION,
     category: { id: cat.id, name: cat.name, path, level: cat.level, tier: effectiveTier, productCount, url: products.live?.link ?? null, flags: cat.flags },
     models: { brief: briefModel, draft: draftModel, humanize: humanized.applied, lengthScale: scale, naturalDraft, catalogFacts, freeLength, ...(humanizerWriter ? { humanizerWriter } : {}), ...(humanized.applied ? { humanizerGuards: guardMode, humanizerQuality } : {}) },
-    data: { productSample: products.names.length, productsRead: allNames.length, brands: products.brands, specs: products.specs, ...(catalog ? { catalog } : {}), ...(products.error ? { siteError: products.error } : {}) },
+    data: { productSample: products.names.length, productsRead: allNames.length, brands: products.brands, specs: products.specs, ...(catalog ? { catalog } : {}), ...(products.error ? {} : { fingerprint: fingerprintOf({ total: products.total, brands: products.brands, catalog: products.catalog }) }), ...(products.error ? { siteError: products.error } : {}) },
     ...(factCheck ? { factCheck } : {}),
     ...(meta ? { meta } : {}),
     brief: cleanBrief,
