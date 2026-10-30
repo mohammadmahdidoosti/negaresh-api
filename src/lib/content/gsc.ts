@@ -29,6 +29,8 @@ function account(): ServiceAccount {
 
 const b64url = (s: string | Buffer) => Buffer.from(s).toString('base64').replace(/=+$/, '').replace(/\+/g, '-').replace(/\//g, '_');
 
+const day = (d: Date) => d.toISOString().slice(0, 10);
+
 let token: { value: string; exp: number } | undefined;
 
 async function accessToken(): Promise<string> {
@@ -64,6 +66,17 @@ async function api<T>(path: string, body?: unknown): Promise<T> {
   return data;
 }
 
+/** Top pages by impressions (last 28 days) whose URL contains `contains` — to see how the site's URLs look. */
+export async function topPages(contains = '/product-category/', limit = 20) {
+  const end = new Date(Date.now() - 3 * 86400_000);
+  const start = new Date(end.getTime() - 28 * 86400_000);
+  const data = await api<{ rows?: Array<{ keys: string[]; clicks: number; impressions: number; position: number }> }>(
+    `/sites/${encodeURIComponent(gscSite())}/searchAnalytics/query`,
+    { startDate: day(start), endDate: day(end), dimensions: ['page'], dimensionFilterGroups: [{ filters: [{ dimension: 'page', operator: 'contains', expression: contains }] }], rowLimit: limit },
+  );
+  return (data.rows ?? []).map(r => ({ page: decodeURI(r.keys[0]), clicks: r.clicks, impressions: r.impressions, position: Number(r.position.toFixed(1)) }));
+}
+
 export async function gscCheck() {
   if (!gscConfigured()) return { ok: false, configured: false, error: 'GSC_SERVICE_ACCOUNT تنظیم نشده است.' };
   try {
@@ -82,8 +95,6 @@ export interface GscRow {
   position: number;
 }
 
-const day = (d: Date) => d.toISOString().slice(0, 10);
-
 /**
  * Queries a page is found for, last `days` days (Search Console data lags ~3 days). Cached a day per page.
  * The page is matched by URL prefix, so «/product-category/زانو/page/2/» counts with the page.
@@ -101,7 +112,8 @@ export async function pageQueries(pageUrl: string, days = 90): Promise<{ rows: G
       startDate: day(start),
       endDate: day(end),
       dimensions: ['query'],
-      dimensionFilterGroups: [{ filters: [{ dimension: 'page', operator: 'contains', expression: decodeURI(pageUrl).replace(/^https?:\/\/[^/]+/, '') }] }],
+      // Search Console stores Persian URLs percent-encoded; match the encoded path
+      dimensionFilterGroups: [{ filters: [{ dimension: 'page', operator: 'contains', expression: encodeURI(decodeURI(pageUrl).replace(/^https?:\/\/[^/]+/, '')) }] }],
       rowLimit: 1000,
     },
   );
