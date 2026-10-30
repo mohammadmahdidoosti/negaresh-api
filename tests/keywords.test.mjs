@@ -40,3 +40,9 @@ test("unrelated meanings are dropped; one-word names get a context seed", async 
   assert.equal(out[0].intent, "نامرتبط");
   assert.equal(out[1].relevant, true);
 });
+
+test("numbers in the data make a size query relevant; «آتل دار» does not", () => {
+  const out = gapOf([{ q: "زانو سایز 32", intent: "مشخصات و سایز", seed: "زانو" }, { q: "زانو بند آتل دار", intent: "عمومی", seed: "زانو" }], "زانو", "زانو", "زانو 32 فلنج دار", "لوله > زانو");
+  assert.equal(out[0].relevant, true);
+  assert.equal(out[1].relevant, false);
+});

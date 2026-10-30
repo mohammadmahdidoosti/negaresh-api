@@ -70,6 +70,9 @@ const FILLER = new Set(['قیمت', 'خرید', 'فروش', 'انواع', 'به�
   // question words: the topic is the rest of the query
   'نحوه', 'روش', 'طریقه', 'چگونه', 'چطور', 'محل', 'علت', 'دلیل', 'فرق', 'تفاوت', 'کدام', 'کشور', 'مال', 'یا', 'است', 'چه']);
 
+/** Word pieces that occur everywhere in product names and say nothing about the topic. */
+const WEAK = new Set(['دار', 'های', 'کشی', 'ساده', 'سری', 'نوع', 'مدل', 'جدید', 'اصلی', 'برای']);
+
 export function gapOf(rows: SuggestRow[], name: string, pageText: string, dataText: string, pathText = ''): SuggestRow[] {
   const nameW = new Set(words(name));
   const page = new Set(words(pageText));
@@ -79,7 +82,8 @@ export function gapOf(rows: SuggestRow[], name: string, pageText: string, dataTe
     const extra = words(r.q).filter(w => !nameW.has(w) && !FILLER.has(w));
     // relevance from the product data and the category path only: page words are too common («کشی» of «لوله‌کشی»
     // made «زانو بند کشی» look related)
-    const known = (w: string) => w.length >= 3 && (data.has(w) || path.has(w));
+    // numbers count when the data has them («زانو سایز 32»); short suffix-like words never do («آتل دار»)
+    const known = (w: string) => (/^\d/.test(w) ? data.has(w) : w.length >= 3 && !WEAK.has(w) && (data.has(w) || path.has(w)));
     const relevant = r.intent !== 'نامرتبط' && (extra.length === 0 || extra.some(known));
     return {
       ...r,
