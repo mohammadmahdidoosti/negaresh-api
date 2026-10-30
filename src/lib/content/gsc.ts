@@ -101,7 +101,7 @@ export interface GscRow {
  */
 export async function pageQueries(pageUrl: string, days = 90): Promise<{ rows: GscRow[]; totals: { clicks: number; impressions: number }; from: string; to: string }> {
   const client = await kv();
-  const key = `gsc:page:${days}:${pageUrl}`;
+  const key = `gsc:page:v2:${days}:${pageUrl}`; // v2: encoded-URL filter (v1 cached empty results)
   const hit = client ? await client.get(key).catch(() => null) : null;
   if (hit) return JSON.parse(hit);
   const end = new Date(Date.now() - 3 * 86400_000);
