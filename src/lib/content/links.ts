@@ -76,8 +76,9 @@ export function duplicateNames(): Array<{ name: string; categories: Array<{ id: 
 function pick(cands: LinkTarget[], self: Category, selfL1: string): LinkTarget | undefined {
   const others = cands.filter(c => c.id !== self.id);
   if (!others.length) return undefined;
-  const same = others.filter(c => c.l1 === selfL1);
-  return (same.length ? same : others).sort((a, b) => b.products - a.products)[0];
+  // in-text links stay inside the page's main group: «استخر» in a fittings page is not a reason to link pool chemicals
+  // (cross-group links come from a curated list of complementary categories, not from word matches)
+  return others.filter(c => c.l1 === selfL1).sort((a, b) => b.products - a.products)[0];
 }
 
 /** Lines that must not get links: headings, table rows, lines that already carry a link. */

@@ -30,3 +30,13 @@ test("gap: uncovered queries, and whether the product data supports them", () =>
   assert.equal(by["زانو پلی رود"].supported, true);
   assert.equal(by["زانو مسی"].supported, false);
 });
+
+test("unrelated meanings are dropped; one-word names get a context seed", async () => {
+  const { seedsFor } = await jiti.import("../src/lib/content/keywords.ts");
+  assert.deepEqual(seedsFor("زانو", "لوله، شیلنگ و اتصالات", []), ["زانو", "زانو لوله"]);
+  assert.deepEqual(seedsFor("سه راهی", "لوله، شیلنگ و اتصالات", []), ["سه راهی"]);
+  const out = gapOf([{ q: "زانو بند طبی", intent: "عمومی", seed: "زانو" }, { q: "زانو لوله سفید", intent: "عمومی", seed: "زانو" }], "زانو", "زانو", "زانو پلیکا", "لوله، شیلنگ و اتصالات > زانو");
+  assert.equal(out[0].relevant, false);
+  assert.equal(out[0].intent, "نامرتبط");
+  assert.equal(out[1].relevant, true);
+});
