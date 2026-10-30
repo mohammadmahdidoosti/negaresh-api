@@ -101,23 +101,45 @@ export interface GscRow {
  */
 export async function pageQueries(pageUrl: string, days = 90): Promise<{ rows: GscRow[]; totals: { clicks: number; impressions: number }; from: string; to: string }> {
   const client = await kv();
-  const key = `gsc:page:v2:${days}:${pageUrl}`; // v2: encoded-URL filter (v1 cached empty results)
+  const key = `gsc:page:v3:${days}:${pageUrl}`; // v3: matched by last path segment (URLs are hierarchical)
   const hit = client ? await client.get(key).catch(() => null) : null;
   if (hit) return JSON.parse(hit);
   const end = new Date(Date.now() - 3 * 86400_000);
   const start = new Date(end.getTime() - days * 86400_000);
+  // Category URLs are hierarchical on the site (/product-category/parent/child/), so the page is matched by its last
+  // path segment, then rows are kept only when the URL ends with that segment (or its /page/N/)
+  const path = decodeURI(pageUrl).replace(/^https?:\/\/[^/]+/, '').replace(/\/+$/, '');
+  const slug = path.split('/').pop() ?? '';
   const data = await api<{ rows?: Array<{ keys: string[]; clicks: number; impressions: number; ctr: number; position: number }> }>(
     `/sites/${encodeURIComponent(gscSite())}/searchAnalytics/query`,
     {
       startDate: day(start),
       endDate: day(end),
-      dimensions: ['query'],
-      // Search Console stores Persian URLs percent-encoded; match the encoded path
-      dimensionFilterGroups: [{ filters: [{ dimension: 'page', operator: 'contains', expression: encodeURI(decodeURI(pageUrl).replace(/^https?:\/\/[^/]+/, '')) }] }],
-      rowLimit: 1000,
+      dimensions: ['query', 'page'],
+      // Search Console stores Persian URLs percent-encoded
+      dimensionFilterGroups: [{ filters: [{ dimension: 'page', operator: 'contains', expression: `/${encodeURIComponent(slug)}/` }] }],
+      rowLimit: 5000,
     },
   );
-  const rows = (data.rows ?? []).map(r => ({ query: r.keys[0], clicks: r.clicks, impressions: r.impressions, ctr: Number(r.ctr.toFixed(4)), position: Number(r.position.toFixed(1)) }));
+  const own = new RegExp(`/${slug.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}/(page/\\d+/)?$`);
+  const byQuery = new Map<string, { clicks: number; impressions: number; posSum: number }>();
+  for (const r of data.rows ?? []) {
+    let page = r.keys[1];
+    try {
+      page = decodeURI(page);
+    } catch {
+      /* keep as is */
+    }
+    if (!own.test(page.split('?')[0])) continue;
+    const q = byQuery.get(r.keys[0]) ?? { clicks: 0, impressions: 0, posSum: 0 };
+    q.clicks += r.clicks;
+    q.impressions += r.impressions;
+    q.posSum += r.position * r.impressions;
+    byQuery.set(r.keys[0], q);
+  }
+  const rows = [...byQuery.entries()]
+    .map(([query, q]) => ({ query, clicks: q.clicks, impressions: q.impressions, ctr: q.impressions ? Number((q.clicks / q.impressions).toFixed(4)) : 0, position: q.impressions ? Number((q.posSum / q.impressions).toFixed(1)) : 0 }))
+    .sort((a, b) => b.impressions - a.impressions);
   const out = {
     rows,
     totals: { clicks: rows.reduce((n, r) => n + r.clicks, 0), impressions: rows.reduce((n, r) => n + r.impressions, 0) },
