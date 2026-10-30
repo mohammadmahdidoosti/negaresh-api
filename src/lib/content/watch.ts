@@ -50,10 +50,14 @@ export function compareFingerprints(before: CatalogFingerprint, after: CatalogFi
   const total = Math.max(after.total, 1);
   const matters = (n: number) => n >= 3 || n / total >= 0.05;
   const has = (m: Record<string, number>, k: string) => Object.keys(m).some(x => norm(x) === norm(k));
-  for (const [b, n] of Object.entries(after.brands)) if (!has(before.brands, b) && matters(n)) out.push({ kind: 'brand-new', detail: `${b} (${n})` });
-  for (const [b, n] of Object.entries(before.brands)) if (!has(after.brands, b) && matters(n)) out.push({ kind: 'brand-gone', detail: `${b} (${n})` });
-  // families are the top of the list only; a family counts as new/gone when it is big enough to have been listed
+  // brands and families are the top of a list (15 brands, 18–25 families): one counts as new/gone only when it is
+  // big enough to have been listed on the other side too, so slipping to 16th place is not «gone»
   const famMin = (m: Record<string, number>) => Math.min(...Object.values(m), Number.POSITIVE_INFINITY);
+  const full = (m: Record<string, number>) => Object.keys(m).length < 15;
+  const bBefore = full(before.brands) ? 0 : famMin(before.brands);
+  const bAfter = full(after.brands) ? 0 : famMin(after.brands);
+  for (const [b, n] of Object.entries(after.brands)) if (!has(before.brands, b) && matters(n) && n > bBefore) out.push({ kind: 'brand-new', detail: `${b} (${n})` });
+  for (const [b, n] of Object.entries(before.brands)) if (!has(after.brands, b) && matters(n) && n > bAfter) out.push({ kind: 'brand-gone', detail: `${b} (${n})` });
   const beforeMin = famMin(before.families);
   const afterMin = famMin(after.families);
   for (const [f, n] of Object.entries(after.families)) if (!has(before.families, f) && matters(n) && n > beforeMin) out.push({ kind: 'family-new', detail: `${f} (${n})` });

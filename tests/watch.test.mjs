@@ -28,3 +28,12 @@ test("results written before fingerprints compare brands and total only", () => 
   const ch = compareFingerprints(fp(100, { "a": 60 }), fp(100, { "a": 60 }, { "خانوادهٔ تازه": 50 }));
   assert.deepEqual(ch, []);
 });
+
+test("a brand slipping out of the top-15 list is not «gone»", () => {
+  const top = n => Object.fromEntries(Array.from({ length: 14 }, (_, i) => [`b${i}`, n - i]));
+  const before = fp(1000, { ...top(100), "تله کرین": 15 });
+  const after = fp(1000, { ...top(100), "ETI": 20 });
+  // تله کرین (15) is below the smallest listed brand after (20): it may still be there, just not listed.
+  // ETI (20) is above the smallest brand listed before (15): it would have been listed, so it is new.
+  assert.deepEqual(compareFingerprints(before, after).map(c => c.kind), ["brand-new"]);
+});
