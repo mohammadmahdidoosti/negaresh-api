@@ -66,7 +66,9 @@ export interface SuggestRow {
 
 const words = (s: string) => norm(s.replace(/[۰-۹]/g, d => String('۰۱۲۳۴۵۶۷۸۹'.indexOf(d)))).split(/[\s،,.؛:()«»؟?!\-/]+/).filter(w => w.length > 1);
 /** Words that say nothing about content (search intent words are counted as covered by any buying page). */
-const FILLER = new Set(['قیمت', 'خرید', 'فروش', 'انواع', 'بهترین', 'لیست', 'مدل', 'برند', 'در', 'با', 'و', 'از', 'برای', 'به', 'چیست', 'های', 'ها', 'جدید', 'ارزان', 'عمده', 'نمایندگی', 'سایز', 'مشخصات', 'روز', 'امروز', '1403', '1404', '1405', 'تهران']);
+const FILLER = new Set(['قیمت', 'خرید', 'فروش', 'انواع', 'بهترین', 'لیست', 'مدل', 'برند', 'در', 'با', 'و', 'از', 'برای', 'به', 'چیست', 'های', 'ها', 'جدید', 'ارزان', 'عمده', 'نمایندگی', 'سایز', 'مشخصات', 'روز', 'امروز', '1403', '1404', '1405', 'تهران',
+  // question words: the topic is the rest of the query
+  'نحوه', 'روش', 'طریقه', 'چگونه', 'چطور', 'محل', 'علت', 'دلیل', 'فرق', 'تفاوت', 'کدام', 'کشور', 'مال', 'یا', 'است', 'چه']);
 
 export function gapOf(rows: SuggestRow[], name: string, pageText: string, dataText: string, pathText = ''): SuggestRow[] {
   const nameW = new Set(words(name));
@@ -75,7 +77,9 @@ export function gapOf(rows: SuggestRow[], name: string, pageText: string, dataTe
   const path = new Set(words(pathText));
   return rows.map(r => {
     const extra = words(r.q).filter(w => !nameW.has(w) && !FILLER.has(w));
-    const known = (w: string) => data.has(w) || page.has(w) || path.has(w);
+    // relevance from the product data and the category path only: page words are too common («کشی» of «لوله‌کشی»
+    // made «زانو بند کشی» look related)
+    const known = (w: string) => w.length >= 3 && (data.has(w) || path.has(w));
     const relevant = r.intent !== 'نامرتبط' && (extra.length === 0 || extra.some(known));
     return {
       ...r,
