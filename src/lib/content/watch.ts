@@ -13,6 +13,10 @@ import { allKnownBrands, getCategory, norm, profilesFor } from './taxonomy';
 
 export interface CatalogFingerprint {
   total: number;
+  /** Read from a spread of pages, not every product (very large categories): brand counts move between runs. */
+  sampled?: boolean;
+  /** Products actually read. */
+  counted?: number;
   brands: Record<string, number>;
   families: Record<string, number>;
   at: string;
@@ -35,6 +39,8 @@ export interface WatchEntry {
 export function fingerprintOf(input: { total: number; brands: Array<{ brand: string; count: number }>; catalog?: Catalog }): CatalogFingerprint {
   return {
     total: input.total,
+    sampled: !!input.catalog && input.catalog.counted < input.catalog.total,
+    ...(input.catalog ? { counted: input.catalog.counted } : {}),
     brands: Object.fromEntries(input.brands.map(b => [b.brand, b.count])),
     families: Object.fromEntries((input.catalog?.families ?? []).map(f => [f.family, f.count])),
     at: new Date().toISOString(),
@@ -48,7 +54,10 @@ export function fingerprintOf(input: { total: number; brands: Array<{ brand: str
 export function compareFingerprints(before: CatalogFingerprint, after: CatalogFingerprint): WatchChange[] {
   const out: WatchChange[] = [];
   const total = Math.max(after.total, 1);
-  const matters = (n: number) => n >= 3 || n / total >= 0.05;
+  // a sample of a huge category shifts as products are added; only a brand or family with a big share counts there
+  const sampled = before.sampled || after.sampled;
+  const counted = (fp: CatalogFingerprint) => Math.max(fp.counted ?? Object.values(fp.brands).reduce((a, b) => a + b, 0), 1);
+  const matters = (n: number, fp: CatalogFingerprint = after) => (sampled ? n / counted(fp) >= 0.1 : n >= 3 || n / total >= 0.05);
   const has = (m: Record<string, number>, k: string) => Object.keys(m).some(x => norm(x) === norm(k));
   // brands and families are the top of a list (15 brands, 18–25 families): one counts as new/gone only when it is
   // big enough to have been listed on the other side too, so slipping to 16th place is not «gone»
@@ -57,11 +66,11 @@ export function compareFingerprints(before: CatalogFingerprint, after: CatalogFi
   const bBefore = full(before.brands) ? 0 : famMin(before.brands);
   const bAfter = full(after.brands) ? 0 : famMin(after.brands);
   for (const [b, n] of Object.entries(after.brands)) if (!has(before.brands, b) && matters(n) && n > bBefore) out.push({ kind: 'brand-new', detail: `${b} (${n})` });
-  for (const [b, n] of Object.entries(before.brands)) if (!has(after.brands, b) && matters(n) && n > bAfter) out.push({ kind: 'brand-gone', detail: `${b} (${n})` });
+  for (const [b, n] of Object.entries(before.brands)) if (!has(after.brands, b) && matters(n, before) && n > bAfter) out.push({ kind: 'brand-gone', detail: `${b} (${n})` });
   const beforeMin = famMin(before.families);
   const afterMin = famMin(after.families);
   for (const [f, n] of Object.entries(after.families)) if (!has(before.families, f) && matters(n) && n > beforeMin) out.push({ kind: 'family-new', detail: `${f} (${n})` });
-  for (const [f, n] of Object.entries(before.families)) if (!has(after.families, f) && matters(n) && n > afterMin) out.push({ kind: 'family-gone', detail: `${f} (${n})` });
+  for (const [f, n] of Object.entries(before.families)) if (!has(after.families, f) && matters(n, before) && n > afterMin) out.push({ kind: 'family-gone', detail: `${f} (${n})` });
   const diff = after.total - before.total;
   if (Math.abs(diff) >= 10 && Math.abs(diff) / Math.max(before.total, 1) >= 0.3) out.push({ kind: 'total', detail: `${before.total} → ${after.total}` });
   return out;
@@ -84,7 +93,7 @@ async function latestWithFingerprint(): Promise<Map<string, { resultId: string; 
     // results written before fingerprints existed: brands and total only (families are not compared)
     const fp = (r.data as { fingerprint?: CatalogFingerprint }).fingerprint
       ?? (r.data.productsRead && r.data.brands?.length
-        ? { total: r.category.productCount, brands: Object.fromEntries(r.data.brands.map(b => [b.brand, b.count])), families: {}, at: r.createdAt }
+        ? { total: r.category.productCount, sampled: (r.data.productsRead ?? 0) < r.category.productCount, counted: r.data.productsRead, brands: Object.fromEntries(r.data.brands.map(b => [b.brand, b.count])), families: {}, at: r.createdAt }
         : undefined);
     if (!fp) continue;
     out.set(r.category.id, { resultId: r.resultId, name: r.category.name, fp });

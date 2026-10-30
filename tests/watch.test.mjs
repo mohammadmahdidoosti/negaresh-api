@@ -37,3 +37,9 @@ test("a brand slipping out of the top-15 list is not «gone»", () => {
   // ETI (20) is above the smallest brand listed before (15): it would have been listed, so it is new.
   assert.deepEqual(compareFingerprints(before, after).map(c => c.kind), ["brand-new"]);
 });
+
+test("sampled huge categories: brands shifting in the sample are not flagged", () => {
+  const before = { ...fp(9491, { "تکاب اتصال": 645, "پلی رود": 470, "دیناپلیمر": 161 }), sampled: true, counted: 3995 };
+  const after = { ...fp(9500, { "تکاب اتصال": 640, "پلی رود": 480, "آبراهه گستر": 181 }), sampled: true, counted: 3998 };
+  assert.deepEqual(compareFingerprints(before, after), []);
+});
