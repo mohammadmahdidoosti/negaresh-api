@@ -1,6 +1,6 @@
 /**
  * WordPress (WooCommerce store) access with an Application Password: WP_USER + WP_APP_PASSWORD (Coolify env).
- * This module only reads. Publishing is a separate, explicit step on the store owner's command.
+ * Reads freely; writes (wpSend) are used only by publish.ts, on the store owner's explicit command, one category at a time.
  */
 import { storeBaseUrl } from './site';
 
@@ -27,6 +27,29 @@ export async function wpGet<T>(path: string, signal?: AbortSignal): Promise<{ st
       data = JSON.parse(text) as T;
     } catch {
       /* not JSON (e.g. a firewall page) */
+    }
+    return { status: res.status, data, ...(res.ok ? {} : { error: (data as { message?: string } | null)?.message ?? text.slice(0, 200) }) };
+  } catch (error) {
+    return { status: 0, data: null, error: error instanceof Error ? error.message : String(error) };
+  }
+}
+
+/** POST JSON with the Application Password (publish.ts only). */
+export async function wpSend<T>(path: string, body: unknown, signal?: AbortSignal): Promise<{ status: number; data: T | null; error?: string }> {
+  const timeout = AbortSignal.timeout(60_000);
+  try {
+    const res = await fetch(`${storeBaseUrl()}${path}`, {
+      method: 'POST',
+      headers: { Authorization: authHeader(), Accept: 'application/json', 'Content-Type': 'application/json', 'User-Agent': 'NegareshContent/1.0 (+https://negaresh.caravansanat.com)' },
+      body: JSON.stringify(body),
+      signal: signal ? AbortSignal.any([signal, timeout]) : timeout,
+    });
+    const text = await res.text();
+    let data: T | null = null;
+    try {
+      data = JSON.parse(text) as T;
+    } catch {
+      /* not JSON */
     }
     return { status: res.status, data, ...(res.ok ? {} : { error: (data as { message?: string } | null)?.message ?? text.slice(0, 200) }) };
   } catch (error) {
