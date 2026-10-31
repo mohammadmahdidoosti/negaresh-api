@@ -21,3 +21,11 @@ test("the guide becomes safe HTML with internal links and a related list", () =>
   assert.doesNotMatch(html, /<script/);
   assert.ok(links.length >= 1);
 });
+
+test("a result goes to the store by itself only with QA not failed and full meta", async () => {
+  const { publishHold } = await jiti.import("../src/lib/content/campaigns.ts");
+  const ok = { qa: { level: "warn" }, content: { metaTitle: "t", metaDescription: "d", above: "a", below: "b" } };
+  assert.equal(publishHold(ok), null);
+  assert.match(publishHold({ ...ok, qa: { level: "fail" } }), /QA/);
+  assert.match(publishHold({ ...ok, content: { ...ok.content, metaDescription: " " } }), /توضیح متا/);
+});

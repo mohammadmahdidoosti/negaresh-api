@@ -49,6 +49,7 @@ export async function POST(request: Request) {
         ...(typeof body.naturalDraft === 'boolean' ? { naturalDraft: body.naturalDraft } : {}),
         ...(typeof body.catalogFacts === 'boolean' ? { catalogFacts: body.catalogFacts } : {}),
         ...(typeof body.freeLength === 'boolean' ? { freeLength: body.freeLength } : {}),
+        ...(body.autoPublish === true ? { autoPublish: true } : {}),
         ...(typeof body.humanizerQuality === 'string' && (QUALITY_LEVELS as readonly string[]).includes(body.humanizerQuality)
           ? { humanizerQuality: body.humanizerQuality as QualityLevel }
           : {}),

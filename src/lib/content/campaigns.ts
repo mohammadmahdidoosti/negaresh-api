@@ -22,7 +22,8 @@ const STALE_MS = 3 * 60_000;
 import { acquireSlot, PipelineError } from '@/lib/api/runner';
 import { defaultHumanize, runCategoryContent, type ContentRequest } from './pipeline';
 import { PROMPT_VERSION } from './prompts';
-import { kv, listResults } from './store';
+import { publishCategory } from './publish';
+import { getResult, kv, listResults } from './store';
 import { findCategory, searchCategories } from './taxonomy';
 import type { QualityLevel } from '@/lib/types';
 
@@ -37,6 +38,8 @@ export interface CampaignOptions {
   naturalDraft?: boolean;
   catalogFacts?: boolean;
   freeLength?: boolean;
+  /** Publish each result to the store right after it is made (QA not failed, meta title and description present). */
+  autoPublish?: boolean;
 }
 
 export interface Campaign {
@@ -60,6 +63,9 @@ export interface CampaignView extends Campaign {
   failed: number;
   skipped: number;
   spentUsd: number;
+  published?: number;
+  held?: number;
+  publishFailed?: number;
 }
 
 export interface CampaignLogEntry {
@@ -71,6 +77,8 @@ export interface CampaignLogEntry {
   qa?: string;
   usd?: number | null;
   error?: string;
+  /** autoPublish: 'published' | 'held: <reason>' | 'failed: <error>' */
+  publish?: string;
 }
 
 const K = {
@@ -130,6 +138,7 @@ export async function getCampaign(id: string): Promise<CampaignView | null> {
     failed: Number(stats.failed ?? 0),
     skipped: Number(stats.skipped ?? 0),
     spentUsd: Number(stats.microUsd ?? 0) / 1e6,
+    ...(c.options.autoPublish ? { published: Number(stats.published ?? 0), held: Number(stats.held ?? 0), publishFailed: Number(stats.publishFailed ?? 0) } : {}),
   };
 }
 
@@ -365,6 +374,23 @@ async function runOne(c: Campaign, categoryId: string): Promise<void> {
     entry.usd = result.cost.usd;
     await r.hIncrBy(K.stats(c.id), 'done', 1);
     if (result.cost.usd) await r.hIncrBy(K.stats(c.id), 'microUsd', Math.round(result.cost.usd * 1e6));
+    const full = c.options.autoPublish ? await getResult(result.resultId) : null;
+    if (c.options.autoPublish) {
+      const hold = full ? publishHold(full) : 'نتیجه در ذخیره‌ساز پیدا نشد';
+      if (hold) {
+        entry.publish = `held: ${hold}`;
+        await r.hIncrBy(K.stats(c.id), 'held', 1);
+      } else {
+        try {
+          const p = await publishCategory(full!);
+          entry.publish = p.descriptionWritten && p.excerptWritten && p.rankMath === 'ok' ? 'published' : `partial: desc=${p.descriptionWritten} excerpt=${p.excerptWritten} rm=${p.rankMath}`;
+          await r.hIncrBy(K.stats(c.id), 'published', 1);
+        } catch (error) {
+          entry.publish = `failed: ${error instanceof Error ? error.message.slice(0, 200) : String(error)}`;
+          await r.hIncrBy(K.stats(c.id), 'publishFailed', 1);
+        }
+      }
+    }
   } catch (error) {
     const noProducts = error instanceof PipelineError && error.code === 'no_products';
     entry.outcome = noProducts ? 'skipped' : 'failed';
@@ -378,6 +404,15 @@ async function runOne(c: Campaign, categoryId: string): Promise<void> {
     await r.multi().hDel(K.inflight(c.id), categoryId).lPush(K.log(c.id), JSON.stringify(entry)).lTrim(K.log(c.id), 0, LOG_KEEP - 1).exec();
     await afterOne(c.id);
   }
+}
+
+/** Why a result must not go to the store by itself (null: it may). */
+export function publishHold(result: { qa: { level: string }; content: { metaTitle?: string; metaDescription?: string; above?: string; below?: string } }): string | null {
+  if (result.qa.level === 'fail') return 'QA ناموفق';
+  if (!result.content.metaTitle?.trim()) return 'عنوان متا ندارد';
+  if (!result.content.metaDescription?.trim()) return 'توضیح متا ندارد';
+  if (!result.content.above?.trim() || !result.content.below?.trim()) return 'متن ناقص';
+  return null;
 }
 
 /** Budget check and completion after each category. */
