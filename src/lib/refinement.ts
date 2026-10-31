@@ -24,7 +24,7 @@ export interface LlmOptions {
 	maxTokens: number;
 	model: string;
 	allowEmpty?: boolean;
-	stage?: "draft" | "critic" | "refine" | "analysis" | "content-brief" | "content-draft" | "content-repair" | "content-factcheck" | "content-meta";
+	stage?: "draft" | "critic" | "refine" | "analysis" | "content-brief" | "content-draft" | "content-repair" | "content-factcheck" | "content-meta" | "content-icon";
 	/** USD per 1M tokens; overrides LLM_MAX_INPUT_PRICE / LLM_MAX_OUTPUT_PRICE for this call. */
 	maxInputPrice?: number;
 	maxOutputPrice?: number;
