@@ -15,6 +15,15 @@ function authHeader(): string {
 }
 
 export async function wpGet<T>(path: string, signal?: AbortSignal): Promise<{ status: number; data: T | null; error?: string }> {
+  let last = await wpGetOnce<T>(path, signal);
+  for (let i = 1; i <= 2 && (last.status === 0 || last.status >= 500) && !signal?.aborted; i++) {
+    await new Promise(r => setTimeout(r, 2000 * i));
+    last = await wpGetOnce<T>(path, signal);
+  }
+  return last;
+}
+
+async function wpGetOnce<T>(path: string, signal?: AbortSignal): Promise<{ status: number; data: T | null; error?: string }> {
   const timeout = AbortSignal.timeout(30_000);
   try {
     const res = await fetch(`${storeBaseUrl()}${path}`, {
@@ -34,8 +43,17 @@ export async function wpGet<T>(path: string, signal?: AbortSignal): Promise<{ st
   }
 }
 
-/** POST JSON with the Application Password (publish.ts only). */
+/** POST JSON with the Application Password; a dropped connection (status 0) or a 5xx is tried again twice. */
 export async function wpSend<T>(path: string, body: unknown, signal?: AbortSignal): Promise<{ status: number; data: T | null; error?: string }> {
+  let last = await wpSendOnce<T>(path, body, signal);
+  for (let i = 1; i <= 2 && (last.status === 0 || last.status >= 500) && !signal?.aborted; i++) {
+    await new Promise(r => setTimeout(r, 3000 * i));
+    last = await wpSendOnce<T>(path, body, signal);
+  }
+  return last;
+}
+
+async function wpSendOnce<T>(path: string, body: unknown, signal?: AbortSignal): Promise<{ status: number; data: T | null; error?: string }> {
   const timeout = AbortSignal.timeout(60_000);
   try {
     const res = await fetch(`${storeBaseUrl()}${path}`, {

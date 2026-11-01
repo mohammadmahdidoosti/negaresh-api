@@ -2,7 +2,8 @@
  * Read-only access to the category taxonomy and the content profiles (data/).
  * Category names are search keywords: they are never renamed here, only explained in content.
  */
-import { readdirSync, readFileSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 export interface Category {
@@ -63,6 +64,36 @@ interface Store {
 
 const DATA_DIR = process.env.CONTENT_DATA_DIR || join(process.cwd(), 'data');
 let store: Store | undefined;
+/**
+ * The live overlay is shared through a file: Next.js gives each route bundle its own copy of this module, so an
+ * overlay applied in one (the daily sync) must reach the others (publish, panel) when they next look.
+ */
+const OVERLAY_FILE = process.env.CONTENT_OVERLAY_FILE || join(tmpdir(), 'negaresh-taxonomy-overlay.json');
+let overlaySeen = 0;
+let overlayCheckedAt = 0;
+
+export function writeOverlayFile(o: TaxonomyOverlay): void {
+  try {
+    writeFileSync(OVERLAY_FILE, JSON.stringify(o));
+  } catch (error) {
+    console.error('[taxonomy] overlay file', error);
+  }
+}
+
+function refreshOverlay(s: Store): void {
+  const now = Date.now();
+  if (now - overlayCheckedAt < 30_000) return;
+  overlayCheckedAt = now;
+  try {
+    if (!existsSync(OVERLAY_FILE)) return;
+    const m = statSync(OVERLAY_FILE).mtimeMs;
+    if (m <= overlaySeen) return;
+    overlaySeen = m;
+    applyOverlayTo(s, JSON.parse(readFileSync(OVERLAY_FILE, 'utf8')) as TaxonomyOverlay);
+  } catch (error) {
+    console.error('[taxonomy] overlay read', error);
+  }
+}
 
 /** Persian-aware normalization for matching names (not for display). */
 export function norm(value: string): string {
@@ -77,7 +108,10 @@ export function norm(value: string): string {
 }
 
 function load(): Store {
-  if (store) return store;
+  if (store) {
+    refreshOverlay(store);
+    return store;
+  }
   const raw = JSON.parse(readFileSync(join(DATA_DIR, 'taxonomy.json'), 'utf8')) as {
     columns: string[];
     rows: Array<Array<string | number | null>>;
@@ -118,6 +152,7 @@ function load(): Store {
     else if (file.startsWith('P2_')) l2.set(String(profile.id), profile as L2Profile);
   }
   store = { byId, bySlug, byName, children, l1, l2 };
+  refreshOverlay(store);
   return store;
 }
 
@@ -225,7 +260,10 @@ export interface TaxonomyOverlay {
 }
 
 export function applyOverlay(o: TaxonomyOverlay): { counts: number; added: number } {
-  const s = load();
+  return applyOverlayTo(load(), o);
+}
+
+function applyOverlayTo(s: Store, o: TaxonomyOverlay): { counts: number; added: number } {
   let counts = 0;
   let added = 0;
   for (const [id, n] of Object.entries(o.counts)) {

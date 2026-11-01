@@ -6,7 +6,7 @@
  */
 import { createCampaign, listCampaigns, categoriesWithCurrentResult, plannedElsewhere, setCampaignStatus } from './campaigns';
 import { kv } from './store';
-import { applyOverlay, categoryBySlug, getCategory, searchCategories, type TaxonomyOverlay } from './taxonomy';
+import { applyOverlay, categoryBySlug, getCategory, searchCategories, writeOverlayFile, type TaxonomyOverlay } from './taxonomy';
 import { wpGet } from './wp';
 
 const OVERLAY_KEY = 'taxonomy:overlay';
@@ -68,7 +68,11 @@ export function buildOverlay(terms: WpTerm[], lookup: (slug: string) => { id: st
 export async function loadOverlay(): Promise<void> {
   const client = await kv();
   const raw = client ? await client.get(OVERLAY_KEY).catch(() => null) : null;
-  if (raw) applyOverlay(JSON.parse(raw) as TaxonomyOverlay);
+  if (raw) {
+    const o = JSON.parse(raw) as TaxonomyOverlay;
+    writeOverlayFile(o);
+    applyOverlay(o);
+  }
 }
 
 export async function syncTaxonomy() {
@@ -77,6 +81,11 @@ export async function syncTaxonomy() {
     const c = categoryBySlug(slug);
     return c && !c.id.startsWith('w') ? { id: c.id, level: c.level } : undefined;
   });
+  // a category of the file whose slug the store no longer has (renamed or removed) has no products to write about
+  for (const c of searchCategories('', { hasProducts: true, limit: 100_000 })) {
+    if (!c.id.startsWith('w') && !(c.id in overlay.counts)) overlay.counts[c.id] = 0;
+  }
+  writeOverlayFile(overlay);
   const client = await kv();
   if (client) await client.set(OVERLAY_KEY, JSON.stringify(overlay));
   const applied = applyOverlay(overlay);
