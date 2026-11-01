@@ -99,20 +99,21 @@ export async function missingCategories(): Promise<string[]> {
     .map(c => c.id);
 }
 
-export async function runDaily(opts: { maxUsd?: number } = {}) {
+export async function runDaily(opts: { maxUsd?: number; label?: string } = {}) {
   const client = await kv();
   if (!client) throw new Error('Redis در دسترس نیست.');
   const sync = await syncTaxonomy();
   // yesterday's daily campaign hands over what it did not finish
-  for (const c of await listCampaigns()) {
+  for (const c of opts.label ? [] : await listCampaigns()) {
     if (c.label.startsWith(DAILY_LABEL) && (c.status === 'running' || c.status === 'paused')) await setCampaignStatus(c.id, 'cancel');
   }
   const ids = await missingCategories();
-  const maxUsd = opts.maxUsd ?? Number(process.env.CONTENT_DAILY_MAX_USD ?? 1);
+  const maxUsd = opts.maxUsd ?? Number(process.env.CONTENT_DAILY_MAX_USD ?? 1); // 0 = no budget (stops when credit runs out)
   let campaign: { id: string; total: number } | null = null;
   if (ids.length) {
     const c = await createCampaign({
-      label: `${DAILY_LABEL} ${new Date().toISOString().slice(0, 10)}`,
+      // a catch-up run gets its own label, so the next daily run does not cancel it (and skips what it holds)
+      label: opts.label ?? `${DAILY_LABEL} ${new Date().toISOString().slice(0, 10)}`,
       categories: ids,
       onlyMissing: true,
       ...(maxUsd > 0 ? { maxUsd } : {}),

@@ -22,7 +22,7 @@ export async function GET(request: Request) {
 export async function POST(request: Request) {
   const denied = requireApiKey(request);
   if (denied) return denied;
-  const body = (await request.json().catch(() => ({}))) as { action?: string; confirm?: boolean; maxUsd?: number };
+  const body = (await request.json().catch(() => ({}))) as { action?: string; confirm?: boolean; maxUsd?: number; label?: string };
   try {
     if (body.action === 'sync') {
       const sync = await syncTaxonomy();
@@ -30,7 +30,7 @@ export async function POST(request: Request) {
     }
     if (body.action === 'run') {
       if (body.confirm !== true) return fail(400, 'confirm_required', 'برای صف کردن تولید و انتشار confirm: true لازم است.');
-      return Response.json({ ok: true, ...(await runDaily({ maxUsd: typeof body.maxUsd === 'number' ? body.maxUsd : undefined })) });
+      return Response.json({ ok: true, ...(await runDaily({ maxUsd: typeof body.maxUsd === 'number' ? body.maxUsd : undefined, label: typeof body.label === 'string' && body.label.trim() ? body.label.trim().slice(0, 80) : undefined })) });
     }
     return fail(400, 'unknown_action', 'action باید sync یا run باشد.');
   } catch (error) {
