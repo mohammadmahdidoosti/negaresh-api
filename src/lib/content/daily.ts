@@ -147,7 +147,9 @@ export function startDailySchedule(): void {
       if (last && Date.now() - Date.parse(last) < 23 * 3600_000) return;
       // one instance per day
       if (!(await client.set('daily:lock', '1', { NX: true, EX: 3600 }))) return;
-      const r = await runDaily();
+      // the very first run catches up with everything missing, without a budget (it pauses when credit runs out);
+      // later runs use the daily budget and leave the catch-up queue alone
+      const r = last ? await runDaily() : await runDaily({ label: 'جبران عقب‌ماندگی', maxUsd: Number(process.env.CONTENT_CATCHUP_MAX_USD ?? 0) });
       console.log('[daily]', JSON.stringify(r));
     } catch (error) {
       console.error('[daily]', error);
