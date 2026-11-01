@@ -260,6 +260,13 @@ function asContentType(v: string): ContentType {
 const detailList = (c?: QaCheck) => (c?.detail ?? '').replace(/^[^:]*:\s*/, '');
 
 /** QA findings the draft model can fix in one targeted edit. Never asks to add length (that invites filler). */
+/** The text above the list with the exact category name in it (adds a closing sentence only when it is missing). */
+export function ensureNameAbove(above: string, name: string): string {
+  const k = (t: string) => norm(t.replace(/[۰-۹]/g, d => String('۰۱۲۳۴۵۶۷۸۹'.indexOf(d))).replace(/[،,]/g, ' '));
+  if (!above.trim() || k(above).includes(k(name))) return above;
+  return `${above.trimEnd()}\n\nدر فهرست زیر، محصولات دستهٔ ${name} را می‌بینید.`;
+}
+
 export function repairProblems(qa: { checks: QaCheck[]; words: number }, tier: Tier, name: string, freeLength = false, belowForRepeat = ''): string[] {
   const by = new Map(qa.checks.filter(c => c.level !== 'pass').map(c => [c.id, c]));
   const range = TIER_WORDS[tier];
@@ -693,6 +700,8 @@ async function runCategoryContentInner(
     content.metaDescription = spell(choice.description);
     meta = { ran: true, source: choice.source, candidates: choice.candidates };
   }
+  // the exact category name must stand in the text above the list; when the model still paraphrased it, add one plain sentence
+  content.above = ensureNameAbove(content.above, cat.name);
   const qa = runQa({ ...qaBase, above: content.above, below: content.below, metaTitle: content.metaTitle, metaDescription: content.metaDescription });
   if (factCheck?.ran) {
     const left = factCheck.remaining;

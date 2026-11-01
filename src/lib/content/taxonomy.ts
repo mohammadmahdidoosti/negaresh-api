@@ -214,6 +214,45 @@ export function searchCategories(q: string, opts: { hasProducts?: boolean; limit
   return out.sort((a, b) => b.products - a.products).slice(0, opts.limit ?? 30);
 }
 
+/**
+ * Live changes from the store (daily sync): product counts of known categories and categories added on the site
+ * since taxonomy.json was made. Applied on top of the file; added categories get ids «w<WordPress term id>».
+ */
+export interface TaxonomyOverlay {
+  at: string;
+  counts: Record<string, number>;
+  added: Array<Pick<Category, 'id' | 'name' | 'level' | 'parent' | 'slug' | 'products'>>;
+}
+
+export function applyOverlay(o: TaxonomyOverlay): { counts: number; added: number } {
+  const s = load();
+  let counts = 0;
+  let added = 0;
+  for (const [id, n] of Object.entries(o.counts)) {
+    const c = s.byId.get(id);
+    if (c && c.products !== n) {
+      c.products = n;
+      counts += 1;
+    }
+  }
+  for (const a of o.added) {
+    if (s.byId.has(a.id) || s.bySlug.has(norm(a.slug))) continue;
+    const cat: Category = { ...a, synonyms: '', flags: 'LIVE_SYNC', oldNames: '' };
+    s.byId.set(cat.id, cat);
+    s.bySlug.set(norm(cat.slug), cat);
+    const key = norm(cat.name);
+    s.byName.set(key, [...(s.byName.get(key) ?? []), cat]);
+    if (cat.parent) s.children.set(cat.parent, [...(s.children.get(cat.parent) ?? []), cat]);
+    added += 1;
+  }
+  return { counts, added };
+}
+
+/** Category by slug (as WordPress returns it, decoded). */
+export function categoryBySlug(slug: string): Category | undefined {
+  return load().bySlug.get(norm(slug));
+}
+
 export function taxonomyStats() {
   const s = load();
   let withProducts = 0;

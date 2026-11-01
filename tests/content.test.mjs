@@ -158,3 +158,9 @@ test("natural-writing rules go into the draft prompt only when asked", async () 
   assert.ok(!draftMessages(input)[0].content.includes("نگارش طبیعی"));
   assert.ok(draftMessages({ ...input, natural: true })[0].content.includes(NATURAL_WRITING_RULES));
 });
+
+test("the exact category name is added above the list only when missing", async () => {
+  const { ensureNameAbove } = await jiti.import("../src/lib/content/pipeline.ts");
+  assert.equal(ensureNameAbove("انواع تصفیه آب، منبع و مخزن را ببینید.", "تصفیه آب، منبع و مخزن"), "انواع تصفیه آب، منبع و مخزن را ببینید.");
+  assert.match(ensureNameAbove("اتصالات مدار هیدرولیک برای خطوط فشار.", "اتصالات هیدرولیک"), /محصولات دستهٔ اتصالات هیدرولیک را می‌بینید\.$/);
+});

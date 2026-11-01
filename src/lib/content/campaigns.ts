@@ -178,6 +178,20 @@ export async function categoriesWithCurrentResult(): Promise<Set<string>> {
   return done;
 }
 
+/** Categories waiting or being made in running or paused campaigns (so a new campaign does not repeat them). */
+export async function plannedElsewhere(exceptLabelPrefix?: string): Promise<Set<string>> {
+  const r = await client();
+  const out = new Set<string>();
+  for (const id of await r.zRange(K.index, 0, -1)) {
+    const c = await readMeta(id);
+    if (!c || (c.status !== 'running' && c.status !== 'paused')) continue;
+    if (exceptLabelPrefix && c.label.startsWith(exceptLabelPrefix)) continue;
+    for (const x of await r.lRange(K.queue(id), 0, -1)) out.add(x);
+    for (const x of await inflightIds(r, id)) out.add(x);
+  }
+  return out;
+}
+
 export async function createCampaign(input: {
   label: string;
   categories?: string[];
@@ -392,6 +406,19 @@ async function runOne(c: Campaign, categoryId: string): Promise<void> {
       }
     }
   } catch (error) {
+    // out of provider credit: put the category back and pause, instead of failing the whole queue one by one
+    if (outOfCredit(error)) {
+      entry.outcome = 'skipped';
+      entry.error = 'اعتبار مدل تمام شده؛ صف متوقف شد.';
+      await r.lPush(K.queue(c.id), categoryId);
+      const fresh = await readMeta(c.id);
+      if (fresh && fresh.status === 'running') {
+        fresh.status = 'paused';
+        fresh.note = 'اعتبار OpenRouter تمام شد؛ بعد از شارژ یا عوض کردن کلید، ادامه بدهید.';
+        await writeMeta(fresh);
+      }
+      return;
+    }
     const noProducts = error instanceof PipelineError && error.code === 'no_products';
     entry.outcome = noProducts ? 'skipped' : 'failed';
     entry.error = error instanceof Error ? error.message.slice(0, 300) : String(error);
@@ -404,6 +431,13 @@ async function runOne(c: Campaign, categoryId: string): Promise<void> {
     await r.multi().hDel(K.inflight(c.id), categoryId).lPush(K.log(c.id), JSON.stringify(entry)).lTrim(K.log(c.id), 0, LOG_KEEP - 1).exec();
     await afterOne(c.id);
   }
+}
+
+/** Provider says the account has no credit left (OpenRouter 402). */
+export function outOfCredit(error: unknown): boolean {
+  const m = error instanceof Error ? error.message : String(error);
+  const status = (error as { status?: number })?.status;
+  return status === 402 || /\b402\b|insufficient (credits|balance)|more credits|out of credits/i.test(m);
 }
 
 /** Why a result must not go to the store by itself (null: it may). */

@@ -84,7 +84,7 @@ export function runQa(q: QaInput): { level: QaLevel; checks: QaCheck[]; words: n
   const checks: QaCheck[] = [];
   const add = (id: string, level: QaLevel, label: string, detail?: string) => checks.push({ id, level, label, detail });
   // «250» in the name and «۲۵۰» in the text are the same keyword
-  const nk = (s: string) => norm(toLatin(s));
+  const nk = (s: string) => norm(toLatin(s).replace(/[،,]/g, ' '));
   const nName = nk(q.name);
   const words = countWords(q.below);
   const range = TIER_WORDS[q.tier];

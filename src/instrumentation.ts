@@ -5,4 +5,6 @@ export async function register() {
   startCampaignWorker();
   const { startWatchSchedule } = await import('./lib/content/watch');
   startWatchSchedule();
+  const { startDailySchedule } = await import('./lib/content/daily');
+  startDailySchedule();
 }
