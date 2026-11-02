@@ -83,3 +83,12 @@ test("the site name a model adds is removed, and a bare name is not a title", ()
   assert.equal(c.title, "تجهیزات تابلو برق و برق صنعتی | خرید کلید، کنتاکتور و فیوز");
   assert.ok(titleProblems("زانو", "زانو").includes("فقط نام دسته"));
 });
+
+test("sizes after «قیمت» in a title are not prices; money amounts are", async () => {
+  const { runQa } = await jiti.import("../src/lib/content/qa.ts");
+  const base = { name: "کنتاکتور", tier: "small", above: "کنتاکتور برای مدار.", below: "## الف\n\nکنتاکتور.", metaDescription: "کنتاکتور", evidence: "", brands: [], allowedBrands: [], knownBrands: [], path: "" };
+  const check = t => runQa({ ...base, metaTitle: t }).checks.find(c => c.id === "no-price").level;
+  assert.equal(check("کنتاکتور | لیست قیمت 25 و 63 آمپر"), "pass");
+  assert.equal(check("کنتاکتور | قیمت ۲٬۵۰۰٬۰۰۰"), "fail");
+  assert.equal(check("کنتاکتور | قیمت 3 میلیون"), "fail");
+});

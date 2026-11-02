@@ -114,7 +114,8 @@ export function runQa(q: QaInput): { level: QaLevel; checks: QaCheck[]; words: n
   // 4. accuracy
   const all = `${q.above}\n${q.below}\n${q.metaTitle}\n${q.metaDescription}`;
   // whole words only: «ریال» must not match inside «متریال»
-  const price = all.match(/(?<![\p{L}])(تومان|ریال|قیمت\s*[0-9۰-۹]|تخفیف\s*[0-9۰-۹]|ارسال رایگان)(?![\p{L}])/u);
+  // a price is an amount of money («قیمت ۲٬۵۰۰٬۰۰۰», «۲ میلیون تومان»), not «لیست قیمت 24 ولت» or «قیمت 32 آمپر»
+  const price = all.match(/(?<![\p{L}])(تومان|ریال|قیمت\s*:?\s*[0-9۰-۹]{1,3}([,٬،.][0-9۰-۹]{3})+|قیمت\s*:?\s*[0-9۰-۹]+\s*(هزار|میلیون)|تخفیف\s*[0-9۰-۹]+\s*(٪|%|درصد)|ارسال رایگان)(?![\p{L}])/u);
   add('no-price', price ? 'fail' : 'pass', 'بدون قیمت، تخفیف یا وعدهٔ ارسال', price?.[0]);
   // well-known standard values (mains voltage, frequency, common DC voltages) need no product evidence
   const STANDARD = new Set(['12', '24', '48', '50', '60', '110', '220', '230', '380', '400']);
