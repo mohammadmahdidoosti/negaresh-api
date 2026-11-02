@@ -185,3 +185,29 @@ export async function publishLog(limit = 50) {
 }
 
 export const storeUrl = storeBaseUrl;
+
+/**
+ * Internal links refresh (weekly, and after big additions): rebuild only the description of a published category —
+ * in-text links and the related-categories list now see categories added since it was published. Categories whose
+ * description is empty (never published, or held) are left alone; an unchanged description is not written.
+ */
+export async function relinkCategory(result: ContentResult): Promise<'updated' | 'same' | 'unpublished' | 'missing'> {
+  const cat = getCategory(result.category.id);
+  if (!cat) return 'missing';
+  const term = await findTermId(cat.slug);
+  if (!term) return 'missing';
+  const t = await wpGet<{ description?: string }>(`/wp-json/wp/v2/product_cat/${term.id}?context=edit&_fields=description`);
+  if (t.status !== 200) throw new Error(`خواندن دسته ناموفق بود: ${t.error ?? t.status}`);
+  const current = (t.data?.description ?? '').trim();
+  if (current.length < 200) return 'unpublished';
+  const html = descriptionHtml(result).html;
+  if (html === current) return 'same';
+  const client = await kv();
+  if (client) {
+    await client.lPush(`relink:backup:${result.category.id}`, JSON.stringify({ at: new Date().toISOString(), termId: term.id, description: current }));
+    await client.lTrim(`relink:backup:${result.category.id}`, 0, 2);
+  }
+  const w = await wpSend(`/wp-json/wp/v2/product_cat/${term.id}`, { description: html });
+  if (w.status !== 200) throw new Error(`نوشتن دسته ناموفق بود: ${w.error ?? w.status}`);
+  return 'updated';
+}

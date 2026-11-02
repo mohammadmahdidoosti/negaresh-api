@@ -5,6 +5,7 @@
  * CONTENT_DAILY=off stops it; CONTENT_DAILY_MAX_USD sets the budget (default 1).
  */
 import { createCampaign, listCampaigns, categoriesWithCurrentResult, plannedElsewhere, setCampaignStatus } from './campaigns';
+import { RELINK_LAST, startRelink } from './relink';
 import { kv } from './store';
 import { applyOverlay, categoryBySlug, getCategory, searchCategories, writeOverlayFile, type TaxonomyOverlay } from './taxonomy';
 import { wpGet } from './wp';
@@ -158,6 +159,9 @@ export function startDailySchedule(): void {
       if (!(await client.set('daily:lock', '1', { NX: true, EX: 3600 }))) return;
       // the very first run catches up with everything missing, without a budget (it pauses when credit runs out);
       // later runs use the daily budget and leave the catch-up queue alone
+      // weekly: refresh internal links of published categories (new categories since they were published)
+      const relinkLast = await client.get(RELINK_LAST);
+      if (last && (!relinkLast || Date.now() - Date.parse(relinkLast) > 7 * 24 * 3600_000)) void startRelink();
       const r = last ? await runDaily() : await runDaily({ label: 'جبران عقب‌ماندگی', maxUsd: Number(process.env.CONTENT_CATCHUP_MAX_USD ?? 0) });
       console.log('[daily]', JSON.stringify(r));
     } catch (error) {
