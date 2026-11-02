@@ -6,6 +6,7 @@ import { relinkCategory } from './publish';
 import { getResult, kv, listResults } from './store';
 
 const STATE = 'relink:state';
+const LOCK = 'relink:lock';
 export const RELINK_LAST = 'relink:last';
 const g = globalThis as { __negareshRelink?: { running: boolean } };
 const flag = (g.__negareshRelink ??= { running: false });
@@ -13,13 +14,22 @@ const flag = (g.__negareshRelink ??= { running: false });
 export async function relinkStatus() {
   const client = await kv();
   const raw = client ? await client.get(STATE) : null;
-  return { running: flag.running, ...(raw ? JSON.parse(raw) : {}) };
+  const locked = client ? !!(await client.get(LOCK)) : false;
+  return { running: flag.running || locked, ...(raw ? JSON.parse(raw) : {}) };
 }
 
+/** One run at a time across route bundles and instances (Redis lock, renewed while running). */
 export async function startRelink(): Promise<boolean> {
   if (flag.running) return false;
+  const client = await kv();
+  if (!client || !(await client.set(LOCK, '1', { NX: true, EX: 600 }))) return false;
   flag.running = true;
-  void runRelink().finally(() => (flag.running = false));
+  const renew = setInterval(() => void client.expire(LOCK, 600).catch(() => undefined), 120_000);
+  void runRelink().finally(() => {
+    clearInterval(renew);
+    flag.running = false;
+    void client.del(LOCK).catch(() => undefined);
+  });
   return true;
 }
 
