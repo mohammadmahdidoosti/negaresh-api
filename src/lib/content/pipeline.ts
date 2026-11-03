@@ -16,10 +16,9 @@ import { fingerprintOf, type CatalogFingerprint } from './watch';
 import { chooseMeta, metaMessages, parseMetaCandidates, type MetaChoice } from './meta';
 import { termsFor, VERIFIED_TERMS } from './glossary';
 import { briefMessages, draftMessages, factCheckMessages, formatDraft, normalizeHeadings, parseBrief, parseDraft, parseFactFindings, PROMPT_VERSION, repairMessages, zwnjMessages, type Brief, type DraftSections, type FactFinding } from './prompts';
-import { gapOf, researchCategory, seedsFor } from './keywords';
 import { repeatedSentences, runQa, type QaCheck, type QaLevel } from './qa';
 import { fetchProductData } from './site';
-import { getResult, saveResult } from './store';
+import { getResult, kv, saveResult } from './store';
 import {
   allKnownBrands,
   breadcrumb,
@@ -382,20 +381,15 @@ async function runCategoryContentInner(
       ...(products.error ? { note: products.error } : {}),
     },
   };
-  // real Google searches around the name that the product data can answer (cached 30 days; CONTENT_SUGGEST=off skips)
-  if (process.env.CONTENT_SUGGEST !== 'off' && !req.reuseDraftFrom) {
-    try {
-      step('brief', 'جست‌وجوهای واقعی کاربران (گوگل)');
-      const parent = cat.parent ? getCategory(cat.parent)?.name : undefined;
-      const rows = await researchCategory({ categoryId: cat.id, name: cat.name, seeds: seedsFor(cat.name, parent, cat.synonyms ? cat.synonyms.split(/[،,]/) : []), maxRequests: 12, delayMs: 300, signal: ctx.signal });
-      const dataText = [products.names.join(' '), catalog ?? ''].join(' ');
-      const useful = gapOf(rows, cat.name, '', dataText, path)
-        .filter(r => r.relevant && r.supported && !['قیمت و خرید', 'نمایندگی و فروشنده', 'نامرتبط'].includes(r.intent))
-        .map(r => r.q);
-      if (useful.length) (briefInput as BriefInputWithSearches).searches = useful.slice(0, 12);
-    } catch {
-      ctx.signal?.throwIfAborted();
-    }
+  // searches the store owner approved for this category (Google Suggest review list) go into the brief; nothing
+  // reaches a page without that approval
+  try {
+    const kvc = await kv();
+    const approved = kvc ? await kvc.get(`kw:approved:${cat.id}`) : null;
+    const list = approved ? (JSON.parse(approved) as string[]).filter(Boolean) : [];
+    if (list.length) (briefInput as BriefInputWithSearches).searches = list.slice(0, 15);
+  } catch {
+    /* no approved searches */
   }
   const reused = req.reuseDraftFrom ? await getResult(req.reuseDraftFrom) : undefined;
   if (req.reuseDraftFrom && (!reused || reused.category.id !== cat.id)) {
