@@ -135,3 +135,25 @@ export async function researchCategory(input: { categoryId: string; name: string
   if (client) await client.set(key, JSON.stringify(rows), { EX: 30 * 24 * 3600 }).catch(() => undefined);
   return rows;
 }
+
+export type Bucket = 'blog' | 'category' | 'covered' | 'no-data' | 'unrelated';
+export const BUCKET_LABEL: Record<Bucket, string> = {
+  blog: 'بلاگ',
+  category: 'دسته',
+  covered: 'در صفحه هست',
+  'no-data': 'بدون داده',
+  unrelated: 'نامرتبط',
+};
+const BLOG_RE = /(چیست|چیه|آموزش|اموزش|نحوه|روش|طرز|تعمیر|تعویض|نصب|علت|چرا|مشکل|خرابی|فرق|تفاوت|مقایسه|کاربرد|چطور|چگونه|نقشه|سیم[\s‌]?کشی|کار\s*می\s*کند|بهتر\s*است)/;
+
+/**
+ * Where a searched phrase belongs: an informational question → blog plan; a buying/spec search the category's
+ * products can answer → category page (after the owner approves it); already on the page, not answerable from
+ * the data, or another meaning of the word → nothing.
+ */
+export function bucketOf(r: SuggestRow): Bucket {
+  if (!r.relevant) return 'unrelated';
+  if (BLOG_RE.test(r.q)) return 'blog';
+  if (r.covered) return 'covered';
+  return r.supported ? 'category' : 'no-data';
+}

@@ -6,6 +6,7 @@
  */
 import { createCampaign, listCampaigns, categoriesWithCurrentResult, plannedElsewhere, setCampaignStatus } from './campaigns';
 import { RELINK_LAST, startRelink } from './relink';
+import { applyApproved, REVIEW_LAST, startReview } from './review';
 import { kv } from './store';
 import { applyOverlay, categoryBySlug, getCategory, searchCategories, writeOverlayFile, type TaxonomyOverlay } from './taxonomy';
 import { wpGet } from './wp';
@@ -164,6 +165,12 @@ export function startDailySchedule(): void {
       // weekly: refresh internal links of published categories (new categories since they were published)
       const relinkLast = await client.get(RELINK_LAST);
       if (last && (!relinkLast || Date.now() - Date.parse(relinkLast) > 7 * 24 * 3600_000)) void startRelink();
+      // monthly: apply the phrases the owner approved last month, then research the next categories
+      const reviewLast = await client.get(REVIEW_LAST);
+      if (last && (!reviewLast || Date.now() - Date.parse(reviewLast) > 30 * 24 * 3600_000)) {
+        await applyApproved().catch(error => console.error('[daily] keyword apply', error));
+        void startReview(Number(process.env.CONTENT_REVIEW_PER_MONTH ?? 400));
+      }
       const r = last ? await runDaily() : await runDaily({ label: 'جبران عقب‌ماندگی', maxUsd: Number(process.env.CONTENT_CATCHUP_MAX_USD ?? 0) });
       console.log('[daily]', JSON.stringify(r));
     } catch (error) {

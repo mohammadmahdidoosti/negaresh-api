@@ -46,3 +46,14 @@ test("numbers in the data make a size query relevant; «آتل دار» does not
   assert.equal(out[0].relevant, true);
   assert.equal(out[1].relevant, false);
 });
+
+test("search phrases are sorted into blog, category and the rest", async () => {
+  const { bucketOf } = await jiti.import("../src/lib/content/keywords.ts");
+  const row = (q, o = {}) => ({ q, intent: "عمومی", seed: "", relevant: true, covered: false, supported: true, ...o });
+  assert.equal(bucketOf(row("شیر برقی چیست")), "blog");
+  assert.equal(bucketOf(row("نصب شیر برقی پنوماتیک")), "blog");
+  assert.equal(bucketOf(row("خرید شیر برقی 12 ولت")), "category");
+  assert.equal(bucketOf(row("شیر برقی پنوماتیک", { covered: true })), "covered");
+  assert.equal(bucketOf(row("شیر برقی دیجی کالا", { supported: false })), "no-data");
+  assert.equal(bucketOf(row("شیر برقی کنیستر پراید", { relevant: false })), "unrelated");
+});

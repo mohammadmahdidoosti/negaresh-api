@@ -21,6 +21,9 @@ export default function ContentPanelPage() {
 								<Image src={logo} alt='' className='h-10 w-auto' priority />
 							</Link>
 							<div className='flex flex-wrap items-center gap-2'>
+								<Link href='/panel/keywords' className='outline-button'>
+									بررسی کلمات
+								</Link>
 								<Link href='/panel' className='outline-button'>
 									پنل API
 								</Link>
