@@ -5,7 +5,7 @@
  * Nothing is ever written to the site from here.
  */
 import { buildCatalog, decodeName, type Catalog, type CatalogProduct } from './catalog';
-import { norm } from './taxonomy';
+import { categoryBySlug, norm, wpTermIdOf } from './taxonomy';
 
 /**
  * The WooCommerce store we read products from. Deliberately NOT `SITE_URL`: on the VPS that variable holds
@@ -84,9 +84,23 @@ export async function fetchLiveCategory(slug: string, signal?: AbortSignal): Pro
     `/wp-json/wp/v2/product_cat?slug=${encodeURIComponent(slug)}&_fields=id,name,count,link`,
     signal,
   );
-  const hit = data[0];
-  return hit ? { wpId: hit.id, name: hit.name, count: hit.count, link: decodeURI(hit.link) } : null;
+  let hit = data[0];
+  if (!hit) {
+    // long Persian slugs are stored truncated: fall back to the term id the daily sync recorded
+    const cat = categoryBySlug(slug);
+    const wpId = cat ? wpTermIdOf(cat.id) : undefined;
+    if (wpId) hit = (await getJson<{ id: number; name: string; count: number; link: string }>(`/wp-json/wp/v2/product_cat/${wpId}?_fields=id,name,count,link`, signal).catch(() => ({ data: null as never }))).data;
+  }
+  return hit ? { wpId: hit.id, name: hit.name, count: hit.count, link: safeDecode(hit.link) } : null;
 }
+
+const safeDecode = (u: string) => {
+  try {
+    return decodeURI(u);
+  } catch {
+    return u;
+  }
+};
 
 const toLatin = (s: string) => s.replace(/[۰-۹]/g, d => String('۰۱۲۳۴۵۶۷۸۹'.indexOf(d))).replace(/[٠-٩]/g, d => String('٠١٢٣٤٥٦٧٨٩'.indexOf(d)));
 

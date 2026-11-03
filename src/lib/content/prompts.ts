@@ -18,6 +18,8 @@ export interface BriefInput {
   };
   l1Profile: unknown;
   l2Profile: unknown;
+  /** What people type into Google around this category (Google Suggest), filtered to what the product data can answer. */
+  searches?: string[];
   siblings: string[];
   children: string[];
   products: {
@@ -64,6 +66,7 @@ export function briefMessages(input: BriefInput) {
 8. هیچ عدد، استاندارد، گواهی یا ادعای عملکردی خارج از facts و پروفایل‌ها ننویس. استانداردهای پروفایل فقط «مرجع حوزه» هستند.
 9. مخاطب را صادقانه تعیین کن: اگر خریداران خانگی یا تعمیرکارند، B2C یا mixed.
 10. همهٔ متن‌ها فارسی روان با نیم‌فاصلهٔ درست.
+11. اگر searches داده شده، این‌ها جست‌وجوهای واقعی کاربران در گوگل دربارهٔ همین دسته است. آن‌هایی را که دادهٔ محصولات جوابشان را دارد در faq یا covers تیترها پوشش بده (با همان واژه‌های جست‌وجو). جست‌وجویی که جوابش در داده نیست را رها کن؛ چیزی از خودت نساز.
 
 فقط یک شیء JSON معتبر با این کلیدها برگردان (بدون توضیح اضافه و بدون \`\`\`):
 {"angle": "…", "audience": "B2B|B2C|mixed", "search_intent": "…", "term_explanation": "…",

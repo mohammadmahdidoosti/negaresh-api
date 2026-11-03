@@ -43,6 +43,7 @@ export function buildOverlay(terms: WpTerm[], lookup: (slug: string) => { id: st
   const byWp = new Map(terms.map(t => [t.id, t]));
   const resolved = new Map<number, { id: string; level: number }>();
   const counts: Record<string, number> = {};
+  const wpIds: Record<string, number> = {};
   const added: TaxonomyOverlay['added'] = [];
   const resolve = (t: WpTerm, depth = 0): { id: string; level: number } | null => {
     if (resolved.has(t.id)) return resolved.get(t.id)!;
@@ -51,6 +52,7 @@ export function buildOverlay(terms: WpTerm[], lookup: (slug: string) => { id: st
     if (known) {
       resolved.set(t.id, known);
       counts[known.id] = t.count;
+      wpIds[known.id] = t.id;
       return known;
     }
     const parentTerm = t.parent ? byWp.get(t.parent) : undefined;
@@ -62,7 +64,7 @@ export function buildOverlay(terms: WpTerm[], lookup: (slug: string) => { id: st
     return me;
   };
   for (const t of terms) resolve(t);
-  return { at: new Date().toISOString(), counts, added };
+  return { at: new Date().toISOString(), counts, added, wpIds };
 }
 
 /** Load the last overlay at start, so new categories are known before the next sync. */

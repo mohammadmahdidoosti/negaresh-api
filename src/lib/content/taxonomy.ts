@@ -257,6 +257,16 @@ export interface TaxonomyOverlay {
   at: string;
   counts: Record<string, number>;
   added: Array<Pick<Category, 'id' | 'name' | 'level' | 'parent' | 'slug' | 'products'>>;
+  /** taxonomy id → WordPress term id (a slug lookup fails for long or truncated Persian slugs) */
+  wpIds?: Record<string, number>;
+}
+
+const wpIdMap = new Map<string, number>();
+
+/** The store's term id for a category, when the daily sync has seen it. */
+export function wpTermIdOf(id: string): number | undefined {
+  load();
+  return wpIdMap.get(id) ?? (/^w\d+$/.test(id) ? Number(id.slice(1)) : undefined);
 }
 
 export function applyOverlay(o: TaxonomyOverlay): { counts: number; added: number } {
@@ -264,6 +274,7 @@ export function applyOverlay(o: TaxonomyOverlay): { counts: number; added: numbe
 }
 
 function applyOverlayTo(s: Store, o: TaxonomyOverlay): { counts: number; added: number } {
+  for (const [id, wp] of Object.entries(o.wpIds ?? {})) wpIdMap.set(id, wp);
   let counts = 0;
   let added = 0;
   for (const [id, n] of Object.entries(o.counts)) {

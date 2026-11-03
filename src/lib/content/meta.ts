@@ -17,7 +17,7 @@ export const SITE_SUFFIX = ' | کاروان صنعت';
  * Superlatives and deals the page cannot back up. «خرید»، «قیمت»، «لیست قیمت»، «قیمت روز» are allowed: they are
  * what buyers search for, and the product list on the page shows prices (store owner, 2026-10-29).
  */
-export const META_BANNED = /(تخفیف|ارزان|بهترین|برترین|بزرگ[\u200c ]?ترین|ارسال\s*رایگان|اورجینال|۱۰۰٪|100%|صد\s*درصد)/;
+export const META_BANNED = /(تخفیف|ارزان|بهترین|برترین|بزرگ[\u200c ]?ترین|ارسال\s*رایگان|اورجینال|۱۰۰٪|100%|صد\s*درصد|گارانتی|ضمانت|تضمین|اصالت)/;
 /** Search words buyers use; a title or description with one of them is preferred. */
 const BUYER_WORDS = /(خرید|قیمت)/;
 

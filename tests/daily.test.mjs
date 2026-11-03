@@ -15,6 +15,7 @@ test("store categories become counts for known ones and new categories under the
   ];
   const o = buildOverlay(terms, s => known[s]);
   assert.deepEqual(o.counts, { "1634": 5, "2072x": 210 });
+  assert.deepEqual(o.wpIds, { "1634": 10, "2072x": 11 });
   assert.equal(o.added.length, 2);
   assert.deepEqual(o.added[0], { id: "w12", name: "پمپ آب & خانگی", level: 3, parent: "2072x", slug: "پمپ-آب-خانگی", products: 7 });
   assert.equal(o.added[1].parent, "w12");

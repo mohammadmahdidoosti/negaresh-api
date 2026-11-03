@@ -11,7 +11,7 @@ import { applyLinks, planLinks, structuralLinks } from './links';
 import type { ContentResult } from './pipeline';
 import { storeBaseUrl } from './site';
 import { kv } from './store';
-import { getCategory } from './taxonomy';
+import { categoryBySlug, getCategory, wpTermIdOf } from './taxonomy';
 import { wpGet, wpSend } from './wp';
 
 export const EXCERPT_META = 'caravan_sanat_excerpt';
@@ -54,7 +54,13 @@ export interface PublishPayload {
 
 async function findTermId(slug: string): Promise<{ id: number; name: string } | null> {
   const r = await wpGet<Array<{ id: number; name: string }>>(`/wp-json/wp/v2/product_cat?slug=${encodeURIComponent(slug)}&_fields=id,name`);
-  return r.data?.[0] ?? null;
+  if (r.data?.[0]) return r.data[0];
+  // long Persian slugs are stored truncated: use the term id the daily sync recorded
+  const cat = categoryBySlug(slug);
+  const wpId = cat ? wpTermIdOf(cat.id) : undefined;
+  if (!wpId) return null;
+  const t = await wpGet<{ id: number; name: string }>(`/wp-json/wp/v2/product_cat/${wpId}?_fields=id,name`);
+  return t.status === 200 && t.data?.id ? t.data : null;
 }
 
 export async function buildPayload(result: ContentResult): Promise<PublishPayload> {

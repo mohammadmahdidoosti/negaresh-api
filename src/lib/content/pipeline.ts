@@ -16,6 +16,7 @@ import { fingerprintOf, type CatalogFingerprint } from './watch';
 import { chooseMeta, metaMessages, parseMetaCandidates, type MetaChoice } from './meta';
 import { termsFor, VERIFIED_TERMS } from './glossary';
 import { briefMessages, draftMessages, factCheckMessages, formatDraft, normalizeHeadings, parseBrief, parseDraft, parseFactFindings, PROMPT_VERSION, repairMessages, zwnjMessages, type Brief, type DraftSections, type FactFinding } from './prompts';
+import { gapOf, researchCategory, seedsFor } from './keywords';
 import { repeatedSentences, runQa, type QaCheck, type QaLevel } from './qa';
 import { fetchProductData } from './site';
 import { getResult, saveResult } from './store';
@@ -24,6 +25,7 @@ import {
   breadcrumb,
   childrenOf,
   findCategory,
+  getCategory,
   norm,
   profilesFor,
   siblingsOf,
@@ -261,6 +263,8 @@ const detailList = (c?: QaCheck) => (c?.detail ?? '').replace(/^[^:]*:\s*/, '');
 
 /** QA findings the draft model can fix in one targeted edit. Never asks to add length (that invites filler). */
 /** The text above the list with the exact category name in it (adds a closing sentence only when it is missing). */
+type BriefInputWithSearches = { searches?: string[] };
+
 export function ensureNameAbove(above: string, name: string): string {
   const k = (t: string) => norm(t.replace(/[۰-۹]/g, d => String('۰۱۲۳۴۵۶۷۸۹'.indexOf(d))).replace(/[،,]/g, ' '));
   if (!above.trim() || k(above).includes(k(name))) return above;
@@ -378,6 +382,21 @@ async function runCategoryContentInner(
       ...(products.error ? { note: products.error } : {}),
     },
   };
+  // real Google searches around the name that the product data can answer (cached 30 days; CONTENT_SUGGEST=off skips)
+  if (process.env.CONTENT_SUGGEST !== 'off' && !req.reuseDraftFrom) {
+    try {
+      step('brief', 'جست‌وجوهای واقعی کاربران (گوگل)');
+      const parent = cat.parent ? getCategory(cat.parent)?.name : undefined;
+      const rows = await researchCategory({ categoryId: cat.id, name: cat.name, seeds: seedsFor(cat.name, parent, cat.synonyms ? cat.synonyms.split(/[،,]/) : []), maxRequests: 12, delayMs: 300, signal: ctx.signal });
+      const dataText = [products.names.join(' '), catalog ?? ''].join(' ');
+      const useful = gapOf(rows, cat.name, '', dataText, path)
+        .filter(r => r.relevant && r.supported && !['قیمت و خرید', 'نمایندگی و فروشنده', 'نامرتبط'].includes(r.intent))
+        .map(r => r.q);
+      if (useful.length) (briefInput as BriefInputWithSearches).searches = useful.slice(0, 12);
+    } catch {
+      ctx.signal?.throwIfAborted();
+    }
+  }
   const reused = req.reuseDraftFrom ? await getResult(req.reuseDraftFrom) : undefined;
   if (req.reuseDraftFrom && (!reused || reused.category.id !== cat.id)) {
     throw new PipelineError('نتیجهٔ ذخیره‌شده برای استفادهٔ دوباره پیدا نشد یا مال این دسته نیست.', 404, 'result_not_found');
