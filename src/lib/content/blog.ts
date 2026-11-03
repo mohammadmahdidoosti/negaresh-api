@@ -6,8 +6,8 @@
  * The previous content is kept in Redis before every write.
  */
 import { kv } from './store';
-import { linkDictionary, type LinkTarget } from './links';
-import { norm } from './taxonomy';
+import { categoryUrl, linkDictionary, type LinkTarget } from './links';
+import { norm, searchCategories } from './taxonomy';
 import { wpGet, wpSend } from './wp';
 
 const MAX_INLINE = 4;
@@ -93,12 +93,32 @@ export function stripBox(html: string): string {
 }
 
 /** New body for a post: in-text links (to categories not yet linked from it) and the related box. */
+/** Words that name a category but mean something else in running text («تبدیل» = convert). */
+const BLOG_GENERIC = new Set(['تبدیل', 'کنترل', 'فیلتر', 'جعبه ابزار', 'ابزار دستی', 'لوازم جانبی']);
+
+/** Categories named exactly by a word or phrase of the title (any size: the post is about it). */
+function titleCategories(title: string): LinkTarget[] {
+  const words = flat(title).split(' ');
+  const out: LinkTarget[] = [];
+  for (let n = Math.min(4, words.length); n >= 1; n--) {
+    for (let i = 0; i + n <= words.length; i++) {
+      const phrase = words.slice(i, i + n).join(' ');
+      if (phrase.length < 3 || BLOG_GENERIC.has(phrase)) continue;
+      const hit = searchCategories(phrase, { hasProducts: true, limit: 20 }).filter(c => flat(c.name) === phrase).sort((a, b) => b.products - a.products)[0];
+      if (hit && !out.some(o => o.id === hit.id) && !out.some(o => flat(o.name).includes(phrase))) out.push({ id: hit.id, name: hit.name, url: categoryUrl(hit), products: hit.products, l1: hit.id });
+    }
+  }
+  return out;
+}
+
 export function linkPost(raw: string, title: string): { html: string; inline: LinkTarget[]; box: LinkTarget[] } {
   const body = stripBox(raw);
   const plain = body.replace(/<[^>]+>/g, ' ');
   const already = new Set([...body.matchAll(/href="([^"]+)"/g)].map(m => decodeURIComponent(m[1])));
-  const inTitle = matchCategories(title);
-  const all = [...inTitle, ...matchCategories(plain).filter(t => !inTitle.some(x => x.id === t.id))].filter(t => !already.has(decodeURIComponent(t.url)) && !already.has(t.url));
+  const inTitle = [...titleCategories(title), ...matchCategories(title)].filter((t, i, a) => a.findIndex(x => x.id === t.id) === i);
+  // in the body, a one-word name links only when the title is about it
+  const bodyHits = matchCategories(plain).filter(t => !BLOG_GENERIC.has(flat(t.name)) && (flat(t.name).includes(' ') || inTitle.some(x => x.id === t.id)));
+  const all = [...inTitle, ...bodyHits.filter(t => !inTitle.some(x => x.id === t.id))].filter(t => !already.has(decodeURIComponent(t.url)) && !already.has(t.url));
   const { html, linked } = linkHtml(body, all);
   const box = [...inTitle, ...all].filter((t, i, a) => a.findIndex(x => x.id === t.id) === i).slice(0, MAX_BOX);
   return { html: box.length ? `${html}\n\n${relatedBox(box)}` : html, inline: linked, box };
