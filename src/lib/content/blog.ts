@@ -104,7 +104,11 @@ function titleCategories(title: string): LinkTarget[] {
     for (let i = 0; i + n <= words.length; i++) {
       const phrase = words.slice(i, i + n).join(' ');
       if (phrase.length < 3 || BLOG_GENERIC.has(phrase)) continue;
-      const hit = searchCategories(phrase, { hasProducts: true, limit: 20 }).filter(c => flat(c.name) === phrase).sort((a, b) => b.products - a.products)[0];
+      const tight = phrase.replace(/ /g, '');
+      // «شیر یک طرفه» in a title is the category «شیر یکطرفه»
+      const hit = searchCategories(words.slice(i, i + n)[0], { hasProducts: true, limit: 200 })
+        .filter(c => flat(c.name) === phrase || flat(c.name).replace(/ /g, '') === tight)
+        .sort((a, b) => b.products - a.products)[0];
       if (hit && !out.some(o => o.id === hit.id) && !out.some(o => flat(o.name).includes(phrase))) out.push({ id: hit.id, name: hit.name, url: categoryUrl(hit), products: hit.products, l1: hit.id });
     }
   }
