@@ -7,11 +7,14 @@
  *   Google and none ranks).
  * - consolidate(postIds): one comprehensive guide from the group's posts.
  * - strengthen(postId): the same post with a summary table, real-search FAQ and product links added, nothing removed.
+ * - write(topic, searches): a new article for a topic that has no post yet, built around real Google searches.
  */
 import { markdownToSafeHtml } from '@/lib/markdown-renderer';
 import { createExecutionContext, generateText } from '@/lib/humanizer';
 import { linkPost, matchCategories } from './blog';
 import { DEFAULT_DRAFT_MODEL } from './pipeline';
+import { fetchProductData } from './site';
+import { allKnownBrands, findCategory } from './taxonomy';
 import { wpGet, wpSend } from './wp';
 
 interface WpPost {
@@ -114,12 +117,52 @@ export async function strengthen(postId: number, searches: string[] = []) {
   return saveDraft(md, [p.id], 'strengthen');
 }
 
-async function saveDraft(md: string, sourceIds: number[], kind: 'consolidate' | 'strengthen') {
+const WRITE_SYSTEM = `تو نویسندهٔ فنی بلاگ فروشگاه «کاروان صنعت» (تجهیزات تأسیسات، صنعتی و کشاورزی) هستی و فارسی روان و دقیق با نیم‌فاصلهٔ درست می‌نویسی.
+قواعد:
+- مقالهٔ آموزشی بنویس، نه متن فروش. فقط دانش فنی جاافتاده و مطمئن را بنویس؛ هر جا مطمئن نیستی کلی بنویس و عدد، استاندارد یا مشخصهٔ دقیق نساز.
+- برند و مشخصه فقط از «داده‌های فروشگاه» که داده می‌شود؛ برند دیگری نام نبر.
+- قیمت، تخفیف، موجودی، «بهترین»، «تضمین»، «گارانتی» و ادعای مطلق ممنوع.
+- ساختار: یک تیتر # در اول؛ مقدمهٔ ۲ تا ۳ جمله‌ای که بلافاصله جواب «چیست» را می‌دهد؛ بخش‌ها با ## و زیربخش‌ها با ###؛ هر جا مقایسه یا مشخصات هست جدول Markdown؛ در آخر «## سؤالات متداول» با ۴ تا ۶ سؤال (### سؤال و پاسخ ۲ تا ۳ جمله‌ای).
+- پاراگراف‌ها کوتاه. بخش «نتیجه‌گیری» ننویس. بخشی را که موضوع ندارد (مثلاً سیم‌کشی برای قطعهٔ غیربرقی) ننویس.`;
+
+/** A new article for a topic with no post yet, around the real searches people make about it. Saved as a draft. */
+export async function write(topic: string, searches: string[], opts: { title?: string; words?: number } = {}) {
+  const name = topic.trim();
+  if (!name) throw new Error('موضوع لازم است.');
+  const cat = findCategory(name);
+  let store = '';
+  if (cat && cat.slug) {
+    const data = await fetchProductData(cat.slug, allKnownBrands()).catch(() => null);
+    if (data && data.total > 0) {
+      const brands = data.brands.slice(0, 8).map(b => b.brand).join('، ');
+      const specs = Object.entries(data.specs).slice(0, 6).map(([u, v]) => `${u}: ${v.slice(0, 8).join('، ')}`).join(' | ');
+      store = `داده‌های فروشگاه (دستهٔ «${cat.name}»، ${data.total} محصول):\n- نمونهٔ نام محصولات: ${data.names.slice(0, 12).join('؛ ')}${brands ? `\n- برندها: ${brands}` : ''}${specs ? `\n- مقادیر دیده‌شده: ${specs}` : ''}`;
+    }
+  }
+  const target = Math.min(2200, Math.max(600, opts.words ?? (searches.length >= 3 ? 1500 : 900)));
+  const md = await generateText(
+    [
+      { role: 'system', content: WRITE_SYSTEM },
+      {
+        role: 'user',
+        content: `یک مقالهٔ جامع دربارهٔ «${name}» بنویس، حدود ${target} کلمه. عنوان پیشنهادی: «${opts.title ?? `${name} چیست؟`}».
+این جست‌وجوهای واقعی گوگل را پوشش بده؛ هرکدام یا یک بخش ## / ### است یا یک سؤال متداول (عین عبارت را در تیتر بیاور اگر طبیعی است):
+${searches.map(q => `- ${q}`).join('\n')}
+${store ? `\n${store}\n` : ''}`,
+      },
+    ],
+    { model: DEFAULT_DRAFT_MODEL(), maxTokens: 12000, temperature: 0.4, stage: 'content-draft', useFallback: false },
+    createExecutionContext(),
+  );
+  return { ...(await saveDraft(md, [], 'new', name)), category: cat?.name ?? null };
+}
+
+async function saveDraft(md: string, sourceIds: number[], kind: 'consolidate' | 'strengthen' | 'new', topic?: string) {
   const title = (md.match(/^#\s+(.+)$/m)?.[1] ?? 'پیش‌نویس').trim();
   const body = md.replace(/^#\s+.+$/m, '').trim();
   const linked = linkPost(markdownToSafeHtml(body), title);
-  const note = `<!-- negaresh:draft kind=${kind} sources=${sourceIds.join(',')} -->`;
-  const label = kind === 'consolidate' ? 'ادغام' : 'تقویت';
+  const note = kind === 'new' ? `<!-- negaresh:draft kind=new topic=${(topic ?? '').replace(/--+/g, '-')} -->` : `<!-- negaresh:draft kind=${kind} sources=${sourceIds.join(',')} -->`;
+  const label = kind === 'consolidate' ? 'ادغام' : kind === 'strengthen' ? 'تقویت' : 'مقالهٔ جدید';
   const r = await wpSend<{ id: number; link: string }>('/wp-json/wp/v2/posts', { title: `[پیش‌نویس ${label}] ${title}`, content: `${note}\n${linked.html}`, status: 'draft' });
   if ((r.status !== 201 && r.status !== 200) || !r.data?.id) throw new Error(`ذخیرهٔ پیش‌نویس ناموفق بود (${r.status}): ${r.error ?? ''}`);
   return { draftId: r.data.id, title, sources: sourceIds, words: words(body).length, links: linked.inline.map(t => t.name), box: linked.box.map(t => t.name) };
