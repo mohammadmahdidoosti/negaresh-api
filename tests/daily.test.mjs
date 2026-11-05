@@ -28,3 +28,13 @@ test("an OpenRouter 402 pauses the queue instead of failing it", async () => {
   assert.equal(outOfCredit(Object.assign(new Error("x"), { status: 402 })), true);
   assert.equal(outOfCredit(new Error("LLM API responded 429: rate limited")), false);
 });
+
+test("applyOverlay keeps the product count of an already added category current", async () => {
+  const { applyOverlay, getCategory } = await jiti.import("../src/lib/content/taxonomy.ts");
+  const a = { id: "w999001", name: "دستهٔ آزمایشی", level: 1, parent: null, slug: "test-cat-999001", products: 0 };
+  applyOverlay({ at: "x", counts: {}, added: [a] });
+  assert.equal(getCategory("w999001").products, 0);
+  const r = applyOverlay({ at: "y", counts: {}, added: [{ ...a, products: 28 }] });
+  assert.equal(getCategory("w999001").products, 28);
+  assert.equal(r.counts, 1);
+});

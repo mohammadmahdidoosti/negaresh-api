@@ -285,7 +285,16 @@ function applyOverlayTo(s: Store, o: TaxonomyOverlay): { counts: number; added: 
     }
   }
   for (const a of o.added) {
-    if (s.byId.has(a.id) || s.bySlug.has(norm(a.slug))) continue;
+    const known = s.byId.get(a.id);
+    if (known) {
+      // a category added by an earlier sync: keep its product count current (it is often created empty)
+      if (known.products !== a.products) {
+        known.products = a.products;
+        counts += 1;
+      }
+      continue;
+    }
+    if (s.bySlug.has(norm(a.slug))) continue;
     const cat: Category = { ...a, synonyms: '', flags: 'LIVE_SYNC', oldNames: '' };
     s.byId.set(cat.id, cat);
     s.bySlug.set(norm(cat.slug), cat);
