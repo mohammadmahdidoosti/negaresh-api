@@ -173,7 +173,8 @@ export async function categoriesWithCurrentResult(): Promise<Set<string>> {
   const done = new Set<string>();
   for (const r of await listResults()) {
     const siteOk = r.qa?.checks?.find(c => c.id === 'site-data')?.level === 'pass';
-    if (r.promptVersion === PROMPT_VERSION && siteOk) done.add(r.category.id);
+    // a result held back by QA was never published: the category still has no text, so it is made again
+    if (r.promptVersion === PROMPT_VERSION && siteOk && r.qa?.level !== 'fail') done.add(r.category.id);
   }
   return done;
 }
