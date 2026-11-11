@@ -397,12 +397,14 @@ async function runOne(c: Campaign, categoryId: string): Promise<void> {
         await r.hIncrBy(K.stats(c.id), 'held', 1);
       } else {
         try {
-          const p = await publishCategory(full!);
+          const p = await publishWithRetry(full!);
           entry.publish = p.descriptionWritten && p.excerptWritten && p.rankMath === 'ok' ? 'published' : `partial: desc=${p.descriptionWritten} excerpt=${p.excerptWritten} rm=${p.rankMath}`;
           await r.hIncrBy(K.stats(c.id), 'published', 1);
         } catch (error) {
           entry.publish = `failed: ${error instanceof Error ? error.message.slice(0, 200) : String(error)}`;
           await r.hIncrBy(K.stats(c.id), 'publishFailed', 1);
+          // the text is ready and passed QA: the daily rule publishes it again
+          await r.sAdd(PUBLISH_RETRY, result.resultId);
         }
       }
     }
@@ -442,6 +444,45 @@ export function outOfCredit(error: unknown): boolean {
 }
 
 /** Why a result must not go to the store by itself (null: it may). */
+/** Results whose publishing failed (network, store down); the daily rule tries them again. */
+export const PUBLISH_RETRY = 'publish:retry';
+
+/** A store hiccup ("fetch failed") should not leave a ready category without text: try twice more, 30 s apart. */
+async function publishWithRetry(result: Parameters<typeof publishCategory>[0], waitMs = 30_000) {
+  let last: unknown;
+  for (let attempt = 0; attempt < 3; attempt++) {
+    try {
+      return await publishCategory(result);
+    } catch (error) {
+      last = error;
+      if (attempt < 2) await new Promise(res => setTimeout(res, waitMs));
+    }
+  }
+  throw last;
+}
+
+/** Publish again what failed to publish before; returns how many went through. */
+export async function retryFailedPublishes(): Promise<{ tried: number; published: number }> {
+  const r = await client();
+  const ids = await r.sMembers(PUBLISH_RETRY);
+  let published = 0;
+  for (const id of ids) {
+    const full = await getResult(id);
+    if (!full || publishHold(full)) {
+      await r.sRem(PUBLISH_RETRY, id);
+      continue;
+    }
+    try {
+      await publishCategory(full);
+      await r.sRem(PUBLISH_RETRY, id);
+      published += 1;
+    } catch (error) {
+      console.error('[publish retry]', id, error);
+    }
+  }
+  return { tried: ids.length, published };
+}
+
 export function publishHold(result: { qa: { level: string }; content: { metaTitle?: string; metaDescription?: string; above?: string; below?: string } }): string | null {
   if (result.qa.level === 'fail') return 'QA ناموفق';
   if (!result.content.metaTitle?.trim()) return 'عنوان متا ندارد';

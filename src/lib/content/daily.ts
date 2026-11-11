@@ -4,7 +4,7 @@
  * published by itself (text, short description, meta title and description, internal links), under a daily budget.
  * CONTENT_DAILY=off stops it; CONTENT_DAILY_MAX_USD sets the budget (default 1).
  */
-import { createCampaign, listCampaigns, categoriesWithCurrentResult, plannedElsewhere, setCampaignStatus } from './campaigns';
+import { createCampaign, listCampaigns, categoriesWithCurrentResult, plannedElsewhere, retryFailedPublishes, setCampaignStatus } from './campaigns';
 import { RELINK_LAST, startRelink } from './relink';
 import { applyApproved, REVIEW_LAST, startReview } from './review';
 import { kv } from './store';
@@ -116,6 +116,11 @@ export async function runDaily(opts: { maxUsd?: number; label?: string } = {}) {
   const client = await kv();
   if (!client) throw new Error('Redis در دسترس نیست.');
   const sync = await syncTaxonomy();
+  // ready texts whose publishing failed earlier (store unreachable) go out first
+  const republished = await retryFailedPublishes().catch(error => {
+    console.error('[daily] publish retry', error);
+    return null;
+  });
   // yesterday's daily campaign hands over what it did not finish
   for (const c of opts.label ? [] : await listCampaigns()) {
     if (c.label.startsWith(DAILY_LABEL) && (c.status === 'running' || c.status === 'paused')) await setCampaignStatus(c.id, 'cancel');
@@ -134,7 +139,7 @@ export async function runDaily(opts: { maxUsd?: number; label?: string } = {}) {
     });
     campaign = { id: c.id, total: c.total };
   }
-  const report = { ...sync, missing: ids.length, campaign, maxUsd };
+  const report = { ...sync, missing: ids.length, campaign, maxUsd, republished };
   await client.set(LAST_KEY, new Date().toISOString());
   await client.set(REPORT_KEY, JSON.stringify(report));
   return report;
